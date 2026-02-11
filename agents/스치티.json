@@ -1,0 +1,10 @@
+{
+    "mcpServers": {
+        "stitch": {
+            "serverUrl": "https://stitch.googleapis.com/mcp",
+            "headers": {
+                "X-Goog-Api-Key": "스티치에서 발급한 API키 삽입"
+            }
+        }
+	}
+}

@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* ========================================
+   AdMate Ad Vision — Design System
+   ======================================== */
+
+@theme inline {
+  /* Color Tokens — Dark Mode First */
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary: #334155;
+  --color-border: #475569;
+  --color-border-subtle: #334155;
+
+  /* Accent — Indigo */
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-accent-subtle: rgba(99, 102, 241, 0.1);
+
+  /* Status Colors */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Text */
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Spacing */
+  --space-sidebar: 240px;
+}
+
+/* Base Styles */
+body {
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family:
+    "Pretendard Variable",
+    "Inter",
+    -apple-system,
+    system-ui,
+    sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+}

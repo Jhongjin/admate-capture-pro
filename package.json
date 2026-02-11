@@ -1,0 +1,31 @@
+{
+  "name": "admate-vision",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AdMate Ad Vision — 디지털 광고 게재면 캡처 자동화",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "next": "^16.1.6",
+    "puppeteer-core": "^24.37.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@sparticuz/chromium": "^143.0.4",
+    "@tailwindcss/postcss": "^4.1.18",
+    "eslint": "^10.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18"
+  }
+}

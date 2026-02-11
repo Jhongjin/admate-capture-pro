@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "src/app/api/captures/execute/route.ts": {
+      "maxDuration": 300,
+      "memory": 3009
+    }
+  }
+}
