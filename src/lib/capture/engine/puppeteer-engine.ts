@@ -124,9 +124,8 @@ export class PuppeteerEngine implements IBrowserEngine {
         executablePath: localPath,
         headless: false,
       });
-    } else {
       // Vercel: @sparticuz/chromium 서버리스 바이너리
-      const chromium = await import("@sparticuz/chromium");
+      const chromium = (await import("@sparticuz/chromium")) as any;
       this.browser = await puppeteer.default.launch({
         args: [...chromium.default.args, "--hide-scrollbars", "--disable-web-security"],
         defaultViewport: chromium.default.defaultViewport,
