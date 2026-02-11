@@ -117,21 +117,24 @@ export class PuppeteerEngine implements IBrowserEngine {
 
     if (isLocal) {
       // 로컬: 시스템에 설치된 Chrome 사용
-      executablePath = await this.findLocalChrome();
-      args = BROWSER_ARGS;
+      const localPath = await this.findLocalChrome();
+      this.browser = await puppeteer.default.launch({
+        args: BROWSER_ARGS,
+        defaultViewport: DEFAULT_VIEWPORT,
+        executablePath: localPath,
+        headless: false,
+      });
     } else {
       // Vercel: @sparticuz/chromium 서버리스 바이너리
       const chromium = await import("@sparticuz/chromium");
-      executablePath = await chromium.default.executablePath();
-      args = [...chromium.default.args, ...BROWSER_ARGS];
+      this.browser = await puppeteer.default.launch({
+        args: [...chromium.default.args, "--hide-scrollbars", "--disable-web-security"],
+        defaultViewport: chromium.default.defaultViewport,
+        executablePath: await chromium.default.executablePath(),
+        headless: chromium.default.headless,
+        ignoreHTTPSErrors: true,
+      } as any);
     }
-
-    this.browser = await puppeteer.default.launch({
-      args,
-      defaultViewport: DEFAULT_VIEWPORT,
-      executablePath,
-      headless: isLocal ? false : "shell",
-    });
   }
 
   async newPage(): Promise<IPageHandle> {
