@@ -1,6 +1,6 @@
 {
   "functions": {
-    "src/app/api/captures/execute/route": {
+    "app/api/captures/execute/route": {
       "maxDuration": 300,
       "memory": 3009
     }
