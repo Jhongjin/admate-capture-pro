@@ -122,13 +122,15 @@ export class PuppeteerEngine implements IBrowserEngine {
         headless: false,
       });
     } else {
-      // Vercel: @sparticuz/chromium 서버리스 바이너리
-      const chromiumModule = await import("@sparticuz/chromium");
+      // Vercel: @sparticuz/chromium-min 서버리스 바이너리
+      const chromiumModule = await import("@sparticuz/chromium-min");
       const chromium = (chromiumModule as any).default || chromiumModule;
       this.browser = await puppeteer.default.launch({
         args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
         defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
+        executablePath: await chromium.executablePath(
+          "https://github.com/Sparticuz/chromium/releases/download/v143.0.0/chromium-v143.0.0-pack.x64.tar"
+        ),
         headless: chromium.headless,
         ignoreHTTPSErrors: true,
       } as any);

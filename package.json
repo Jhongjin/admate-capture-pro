@@ -10,7 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^143.0.4",
+    "@sparticuz/chromium-min": "^143.0.4",
     "@supabase/supabase-js": "^2.95.3",
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.13",
