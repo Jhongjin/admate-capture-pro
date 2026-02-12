@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
     "@supabase/supabase-js": "^2.95.3",
     "@types/node": "^25.2.3",
     "@types/react": "^19.2.13",
@@ -22,7 +23,6 @@
     "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@sparticuz/chromium": "^143.0.4",
     "@tailwindcss/postcss": "^4.1.18",
     "eslint": "^10.0.0",
     "postcss": "^8.5.6",
