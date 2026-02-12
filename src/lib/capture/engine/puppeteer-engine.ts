@@ -123,12 +123,13 @@ export class PuppeteerEngine implements IBrowserEngine {
       });
     } else {
       // Vercel: @sparticuz/chromium 서버리스 바이너리
-      const chromium = (await import("@sparticuz/chromium")) as any;
+      const chromiumModule = await import("@sparticuz/chromium");
+      const chromium = (chromiumModule as any).default || chromiumModule;
       this.browser = await puppeteer.default.launch({
-        args: [...chromium.default.args, "--hide-scrollbars", "--disable-web-security"],
-        defaultViewport: chromium.default.defaultViewport,
-        executablePath: await chromium.default.executablePath(),
-        headless: chromium.default.headless,
+        args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
         ignoreHTTPSErrors: true,
       } as any);
     }
