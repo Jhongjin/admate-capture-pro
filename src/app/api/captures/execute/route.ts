@@ -8,6 +8,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@/lib/supabase/client";
 import { createChannel } from "@/lib/capture";
+import { GdnCapture } from "@/lib/capture/channels/gdn-capture";
 import type { VisionDaCaptureRow, ChannelType } from "@/lib/supabase/types";
 
 export const maxDuration = 300; // 5분
@@ -110,6 +111,10 @@ export async function POST(request: NextRequest) {
 
       // 6) DB 업데이트 → completed (vision_da_captures)
       const durationMs = Date.now() - startTime;
+
+      // 진단 정보 수집 (GdnCapture인 경우)
+      const diagnostics = (channel as any).getDiagnostics?.() ?? null;
+
       await supabase
         .from("vision_da_captures")
         .update({
@@ -121,6 +126,7 @@ export async function POST(request: NextRequest) {
           metadata: {
             capturedAt: result.capturedAt,
             durationMs,
+            diagnostics, // 슬롯 탐지/인젝션 진단 정보
           },
           updated_at: new Date().toISOString(),
         })
