@@ -96,6 +96,10 @@ class PuppeteerPageHandle implements IPageHandle {
     });
   }
 
+  async setBypassCSP(enabled: boolean): Promise<void> {
+    await this.page.setBypassCSP(enabled);
+  }
+
   url(): string {
     return this.page.url();
   }
@@ -145,6 +149,9 @@ export class PuppeteerEngine implements IBrowserEngine {
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     );
+
+    // CSP 우회 — 외부 이미지 인젝션 허용
+    await page.setBypassCSP(true);
 
     return new PuppeteerPageHandle(page);
   }
