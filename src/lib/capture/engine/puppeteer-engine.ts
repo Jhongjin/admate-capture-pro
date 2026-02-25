@@ -112,6 +112,21 @@ class PuppeteerPageHandle implements IPageHandle {
 export class PuppeteerEngine implements IBrowserEngine {
   private browser: PuppeteerBrowser | null = null;
 
+  /** /tmp의 기존 Chromium 프로세스를 정리 (ETXTBSY 방지) */
+  private async cleanupStaleChromium(): Promise<void> {
+    if (process.env.IS_LOCAL === "true") return;
+    try {
+      const { execSync } = await import("child_process");
+      // 이전 실행에서 남은 좀비 Chromium 프로세스 kill
+      execSync("pkill -9 -f chromium 2>/dev/null || true", { timeout: 3000 });
+      // /tmp 의 chromium 바이너리 lock 해제를 위해 잠시 대기
+      await new Promise((r) => setTimeout(r, 500));
+      console.log("[PuppeteerEngine] 🧹 기존 Chromium 프로세스 정리 완료");
+    } catch {
+      // 실패해도 무시 — 정상 동작에 영향 없음
+    }
+  }
+
   async launch(): Promise<void> {
     const puppeteer = await import("puppeteer-core");
     const isLocal = process.env.IS_LOCAL === "true";
@@ -126,18 +141,57 @@ export class PuppeteerEngine implements IBrowserEngine {
         headless: false,
       });
     } else {
-      // Vercel: @sparticuz/chromium-min 서버리스 바이너리
+      // 🔑 Vercel: 기존 프로세스 정리 후 재시도 로직
+      await this.cleanupStaleChromium();
+
       const chromiumModule = await import("@sparticuz/chromium-min");
       const chromium = (chromiumModule as any).default || chromiumModule;
-      this.browser = await puppeteer.default.launch({
-        args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(
-          "https://github.com/Sparticuz/chromium/releases/download/v143.0.0/chromium-v143.0.0-pack.x64.tar"
-        ),
-        headless: chromium.headless,
-        ignoreHTTPSErrors: true,
-      } as any);
+      const execPath = await chromium.executablePath(
+        "https://github.com/Sparticuz/chromium/releases/download/v143.0.0/chromium-v143.0.0-pack.x64.tar"
+      );
+
+      const MAX_RETRIES = 3;
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          this.browser = await puppeteer.default.launch({
+            args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
+            defaultViewport: chromium.defaultViewport,
+            executablePath: execPath,
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true,
+          } as any);
+          console.log(`[PuppeteerEngine] 🚀 Chromium 시작 성공 (시도 ${attempt}/${MAX_RETRIES})`);
+          return; // 성공하면 즉시 반환
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          const isETXTBSY = lastError.message.includes("ETXTBSY");
+
+          if (isETXTBSY && attempt < MAX_RETRIES) {
+            const delay = attempt * 2000; // 2초, 4초 대기
+            console.warn(`[PuppeteerEngine] ⚠️ ETXTBSY 발생, ${delay}ms 후 재시도 (${attempt}/${MAX_RETRIES})`);
+            // 다시 정리
+            await this.cleanupStaleChromium();
+            // /tmp에서 바이너리 파일 삭제하여 재추출 강제
+            try {
+              const fs = await import("fs");
+              if (fs.existsSync(execPath)) {
+                fs.unlinkSync(execPath);
+                console.log(`[PuppeteerEngine] 🗑️ 기존 바이너리 삭제: ${execPath}`);
+              }
+            } catch { /* 무시 */ }
+            await new Promise((r) => setTimeout(r, delay));
+            // executablePath 재추출
+            // chromium-min은 내부적으로 파일이 없으면 다시 추출함
+          } else {
+            throw lastError;
+          }
+        }
+      }
+
+      // 모든 재시도 실패
+      throw lastError || new Error("Chromium launch failed after all retries");
     }
   }
 

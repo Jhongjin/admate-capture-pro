@@ -38,8 +38,11 @@ export interface CaptureRequest {
 
 export abstract class BaseChannel {
   protected engine: IBrowserEngine;
+  /** 외부에서 전달된 공유 엔진 여부 (true면 자체 launch/close 안 함) */
+  private isSharedEngine: boolean;
 
   constructor(engine?: IBrowserEngine) {
+    this.isSharedEngine = !!engine;
     this.engine = engine ?? new PuppeteerEngine();
   }
 
@@ -48,33 +51,44 @@ export abstract class BaseChannel {
 
   /** 전체 캡처 파이프라인 실행 */
   async execute(request: CaptureRequest): Promise<CaptureResult> {
-    await this.engine.launch();
+    // 공유 엔진이 아닌 경우에만 자체적으로 시작
+    if (!this.isSharedEngine) {
+      await this.engine.launch();
+    }
 
     try {
       const page = await this.engine.newPage();
 
-      // 1) 광고 게재면 캡처
-      const placementScreenshot = await this.captureAdPlacement(page, request);
+      try {
+        // 1) 광고 게재면 캡처
+        const placementScreenshot = await this.captureAdPlacement(page, request);
 
-      // 2) 랜딩 페이지 캡처 (옵션)
-      let landingScreenshot: Buffer | undefined;
-      let landingUrl: string | undefined;
+        // 2) 랜딩 페이지 캡처 (옵션)
+        let landingScreenshot: Buffer | undefined;
+        let landingUrl: string | undefined;
 
-      if (request.captureLanding && request.clickUrl) {
-        const landingResult = await this.captureLanding(page, request.clickUrl);
-        landingScreenshot = landingResult.screenshot;
-        landingUrl = landingResult.finalUrl;
+        if (request.captureLanding && request.clickUrl) {
+          const landingResult = await this.captureLanding(page, request.clickUrl);
+          landingScreenshot = landingResult.screenshot;
+          landingUrl = landingResult.finalUrl;
+        }
+
+        return {
+          placementScreenshot,
+          landingScreenshot,
+          capturedAt: new Date().toISOString(),
+          pageUrl: request.publisherUrl,
+          landingUrl,
+        };
+      } finally {
+        // 페이지는 항상 닫기 (메모리 해제)
+        await page.close().catch(() => {});
       }
-
-      return {
-        placementScreenshot,
-        landingScreenshot,
-        capturedAt: new Date().toISOString(),
-        pageUrl: request.publisherUrl,
-        landingUrl,
-      };
     } finally {
-      await this.engine.close();
+      // 공유 엔진이 아닌 경우에만 자체적으로 종료
+      if (!this.isSharedEngine) {
+        await this.engine.close();
+      }
     }
   }
 
