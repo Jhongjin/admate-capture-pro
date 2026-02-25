@@ -24,27 +24,47 @@ interface PublisherPreset {
   url: string;
   category: string;
   icon: string;
-  adSize: string;
+  adSizes: string[];
+  description: string;
 }
 
 const PUBLISHER_PRESETS: PublisherPreset[] = [
   // 종합 뉴스
-  { name: "연합뉴스", url: "https://www.yna.co.kr/", category: "뉴스", icon: "📰", adSize: "300x250" },
-  { name: "조선일보", url: "https://www.chosun.com/", category: "뉴스", icon: "📰", adSize: "300x250" },
-  { name: "중앙일보", url: "https://www.joongang.co.kr/", category: "뉴스", icon: "📰", adSize: "300x250" },
-  { name: "동아일보", url: "https://www.donga.com/", category: "뉴스", icon: "📰", adSize: "300x250" },
-  { name: "한국경제", url: "https://www.hankyung.com/", category: "경제", icon: "💰", adSize: "300x250" },
-  { name: "매일경제", url: "https://www.mk.co.kr/", category: "경제", icon: "💰", adSize: "300x250" },
+  { name: "연합뉴스", url: "https://www.yna.co.kr/", category: "뉴스", icon: "📰", adSizes: ["300x250", "728x90"], description: "국내 대표 통신사" },
+  { name: "조선일보", url: "https://www.chosun.com/", category: "뉴스", icon: "📰", adSizes: ["300x250", "970x250"], description: "종합일간지" },
+  { name: "중앙일보", url: "https://www.joongang.co.kr/", category: "뉴스", icon: "📰", adSizes: ["300x250", "728x90"], description: "종합일간지" },
+  { name: "동아일보", url: "https://www.donga.com/", category: "뉴스", icon: "📰", adSizes: ["300x250", "728x90"], description: "종합일간지" },
+  { name: "한국경제", url: "https://www.hankyung.com/", category: "경제", icon: "💰", adSizes: ["300x250", "970x90"], description: "경제전문지" },
+  { name: "매일경제", url: "https://www.mk.co.kr/", category: "경제", icon: "💰", adSizes: ["300x250", "728x90"], description: "경제전문지" },
   // IT/테크
-  { name: "ZDNet Korea", url: "https://zdnet.co.kr/", category: "IT", icon: "💻", adSize: "300x250" },
-  { name: "블로터", url: "https://www.bloter.net/", category: "IT", icon: "💻", adSize: "300x250" },
-  // 커뮤니티/포털
-  { name: "SBS 뉴스", url: "https://news.sbs.co.kr/", category: "방송", icon: "📺", adSize: "300x250" },
-  { name: "KBS 뉴스", url: "https://news.kbs.co.kr/", category: "방송", icon: "📺", adSize: "300x250" },
+  { name: "ZDNet Korea", url: "https://zdnet.co.kr/", category: "IT", icon: "💻", adSizes: ["300x250", "728x90"], description: "IT전문 미디어" },
+  { name: "블로터", url: "https://www.bloter.net/", category: "IT", icon: "💻", adSizes: ["300x250"], description: "테크 미디어" },
+  // 방송
+  { name: "SBS 뉴스", url: "https://news.sbs.co.kr/", category: "방송", icon: "📺", adSizes: ["300x250", "728x90"], description: "SBS 뉴스 포털" },
+  { name: "KBS 뉴스", url: "https://news.kbs.co.kr/", category: "방송", icon: "📺", adSizes: ["300x250", "728x90"], description: "KBS 뉴스 포털" },
 ];
 
 /** 프리셋 카테고리 목록 */
 const PRESET_CATEGORIES = ["전체", ...Array.from(new Set(PUBLISHER_PRESETS.map((p) => p.category)))];
+
+/** GDN 광고 사이즈 가이드 */
+interface AdSizeInfo {
+  size: string;
+  width: number;
+  height: number;
+  name: string;
+  usage: string;
+  popularity: "높음" | "보통" | "낮음";
+}
+
+const GDN_AD_SIZES: AdSizeInfo[] = [
+  { size: "300×250", width: 300, height: 250, name: "미디엄 렉탱글", usage: "기사 본문 사이드바", popularity: "높음" },
+  { size: "728×90", width: 728, height: 90, name: "리더보드", usage: "페이지 상단/하단", popularity: "높음" },
+  { size: "970×250", width: 970, height: 250, name: "빌보드", usage: "페이지 최상단", popularity: "보통" },
+  { size: "160×600", width: 160, height: 600, name: "와이드 스카이스크래퍼", usage: "사이드바 세로", popularity: "보통" },
+  { size: "320×100", width: 320, height: 100, name: "모바일 배너", usage: "모바일 상단/하단", popularity: "높음" },
+  { size: "336×280", width: 336, height: 280, name: "라지 렉탱글", usage: "기사 본문 중간", popularity: "보통" },
+];
 
 /** 폼 데이터 타입 */
 interface CaptureFormData {
@@ -107,6 +127,7 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
   const [publisherMode, setPublisherMode] = useState<"preset" | "custom">("preset");
   const [presetCategory, setPresetCategory] = useState("전체");
   const [showAllPresets, setShowAllPresets] = useState(false);
+  const [showSizeGuide, setShowSizeGuide] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
@@ -371,15 +392,22 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
                     `}
                   >
                     <span className="text-lg flex-shrink-0">{preset.icon}</span>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className={`font-semibold text-xs truncate ${
                         form.publisherUrl === preset.url ? "text-[var(--color-accent)]" : "text-[var(--color-text-primary)]"
                       }`}>
                         {preset.name}
                       </p>
-                      <p className="text-[10px] text-[var(--color-text-muted)] truncate">
-                        {preset.adSize}
+                      <p className="text-[10px] text-[var(--color-text-muted)]">
+                        {preset.description}
                       </p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {preset.adSizes.map((s) => (
+                          <span key={s} className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -483,7 +511,10 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
                       {isDragOver ? "여기에 놓으세요!" : "이미지를 드래그하거나 클릭하여 업로드"}
                     </p>
                     <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                      PNG, JPG, WebP, GIF · 최대 10MB · 300×250 권장
+                      PNG, JPG, WebP, GIF · 최대 10MB
+                    </p>
+                    <p className="text-[10px] text-[var(--color-accent)] mt-0.5">
+                      💡 어떤 사이즈든 광고 슬롯에 자동 맞춤됩니다
                     </p>
                   </div>
                   <input
@@ -556,6 +587,72 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
               {form.creativeUrl && !isValidUrl(form.creativeUrl) && (
                 <p className="text-xs text-[var(--color-error)] mt-1">올바른 URL 형식을 입력해주세요</p>
               )}
+            </div>
+          )}
+
+          {/* 사이즈 가이드 토글 */}
+          <button
+            type="button"
+            onClick={() => setShowSizeGuide(!showSizeGuide)}
+            className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg
+                       text-xs font-medium text-[var(--color-text-muted)]
+                       hover:text-[var(--color-accent)] hover:bg-[var(--color-accent-subtle)]
+                       border border-[var(--color-border)] hover:border-[var(--color-accent)]
+                       transition-all duration-200"
+          >
+            📐 GDN 광고 사이즈 가이드
+            <span className="text-[10px]">{showSizeGuide ? "▲" : "▼"}</span>
+          </button>
+
+          {/* 사이즈 가이드 패널 */}
+          {showSizeGuide && (
+            <div className="mt-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 animate-fade-in">
+              {/* 안내 메시지 */}
+              <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg bg-[var(--color-accent-subtle)] border border-[var(--color-accent)]/20">
+                <span className="text-sm mt-0.5">✨</span>
+                <div>
+                  <p className="text-xs font-semibold text-[var(--color-accent)]">자동 사이즈 매핑</p>
+                  <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
+                    어떤 크기의 이미지를 업로드하더라도, 게재면의 광고 슬롯 크기에 맞게 <strong>자동으로 리사이즈</strong>됩니다.
+                    단, 원본과 슬롯의 비율이 크게 다르면 이미지 일부가 잘릴 수 있어요.
+                  </p>
+                </div>
+              </div>
+
+              {/* 사이즈 목록 */}
+              <div className="space-y-1.5">
+                {GDN_AD_SIZES.map((ad) => (
+                  <div
+                    key={ad.size}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-[var(--color-bg-secondary)] transition-colors"
+                  >
+                    {/* 미니 비율 프리뷰 */}
+                    <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center">
+                      <div
+                        className="border border-[var(--color-accent)]/40 bg-[var(--color-accent-subtle)] rounded-sm"
+                        style={{
+                          width: Math.min(40, ad.width / (Math.max(ad.width, ad.height) / 40)),
+                          height: Math.min(40, ad.height / (Math.max(ad.width, ad.height) / 40)),
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[var(--color-text-primary)]">{ad.size}</span>
+                        <span className="text-[10px] text-[var(--color-text-muted)]">{ad.name}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                          ad.popularity === "높음"
+                            ? "bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/20"
+                            : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                        }`}>
+                          {ad.popularity === "높음" ? "🔥 인기" : ad.popularity}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[var(--color-text-muted)]">{ad.usage}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
