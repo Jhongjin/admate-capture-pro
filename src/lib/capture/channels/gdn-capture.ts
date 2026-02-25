@@ -191,8 +191,8 @@ export class GdnCapture extends BaseChannel {
         
         for (const iframe of iframes) {
           const rect = iframe.getBoundingClientRect();
-          // 광고 크기일 가능성이 높은 iframe만 (가로 200px 이상, 세로 50px 이상)
-          if (rect.width >= 200 && rect.height >= 50 && rect.width <= 1200) {
+          // 광고 크기일 가능성이 높은 iframe만 (최소 200x80)
+          if (rect.width >= 200 && rect.height >= 80 && rect.width <= 1200) {
             const wrapper = document.createElement('div');
             wrapper.setAttribute('data-injected', 'admate-wrapper');
             wrapper.style.cssText = 'overflow:hidden !important; width:' + Math.round(rect.width) + 'px !important; height:' + Math.round(rect.height) + 'px !important; display:block !important;';
