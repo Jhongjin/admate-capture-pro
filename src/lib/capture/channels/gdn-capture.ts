@@ -114,10 +114,18 @@ export class GdnCapture extends BaseChannel {
       await this.debugPageDom(page);
     }
 
-    // 5) 소재 인젝션
+    // 5) 소재 인젝션 — injectionMode에 따라 동작
+    const injectionMode = (request.options?.injectionMode as string) || "single";
+    const targetSlotCount = (request.options?.slotCount as number) || 1;
+    
     let injectedCount = 0;
-    const maxAttempts = Math.min(slots.length, 5);
+    const maxAttempts = Math.min(slots.length, injectionMode === "all" ? 10 : 5);
+    const maxSuccessSlots = injectionMode === "single" ? 1
+      : injectionMode === "all" ? 999
+      : targetSlotCount;
+    
     this.diagnostics.slotsAttempted = maxAttempts;
+    console.log(`[GDN] 인젝션 모드: ${injectionMode} (목표: ${maxSuccessSlots}개 슬롯)`);
 
     for (let i = 0; i < maxAttempts; i++) {
       const slot = slots[i];
@@ -135,7 +143,11 @@ export class GdnCapture extends BaseChannel {
         if (result.success) {
           console.log(`[GDN] ✅ 인젝션 성공 [${i + 1}]: method=${result.method}`);
           injectedCount++;
-          break;
+          // 목표 슬롯 수 도달 시 중단
+          if (injectedCount >= maxSuccessSlots) {
+            console.log(`[GDN] 목표 슬롯 수 ${maxSuccessSlots}개 달성, 중단`);
+            break;
+          }
         } else {
           console.warn(`[GDN] ⚠️ 인젝션 실패 [${i + 1}]: ${result.error}`);
         }

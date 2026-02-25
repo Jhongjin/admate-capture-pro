@@ -63,11 +63,17 @@ export async function POST(request: NextRequest) {
 
       // 4) 캡처 실행
       // source_url(기존 컬럼)을 publisherUrl로 사용
+      // metadata에서 injectionMode/slotCount를 읽어 options로 전달
+      const captureMetadata = (capture as any).metadata ?? {};
       const result = await channel.execute({
-        publisherUrl: capture.source_url ?? "", // source_url -> publisherUrl
+        publisherUrl: capture.source_url ?? "",
         creativeUrl: capture.creative_url,
         captureLanding: capture.capture_landing,
         clickUrl: capture.click_url ?? undefined,
+        options: {
+          injectionMode: captureMetadata.injectionMode ?? "single",
+          slotCount: captureMetadata.slotCount ?? 1,
+        },
       });
 
       // 5) Supabase Storage에 업로드
