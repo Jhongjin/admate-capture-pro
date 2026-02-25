@@ -199,61 +199,107 @@ export async function injectCreative(
 }
 
 /**
- * 페이지 방해요소(쿠키 배너, 팝업, 오버레이) 제거
+ * 페이지 방해요소 제거 (강화 v2)
+ * 쿠키 배너, 구독/멤버십 팝업, 페이월, 딤 레이어, 앱 설치 배너 등
  */
 export async function removePageObstructions(page: IPageHandle): Promise<void> {
   await page.evaluate<void>(`
     (() => {
+      // 1단계: 셀렉터 기반 제거
       const obstructionSelectors = [
+        // 쿠키/동의
         '[class*="cookie"]', '[id*="cookie"]',
         '[class*="consent"]', '[id*="consent"]',
         '[class*="gdpr"]', '[id*="gdpr"]',
         '.cc-banner', '.cc-window',
         '[class*="privacy"]', '[id*="privacy"]',
-        '[class*="popup"]', '[class*="modal"]',
-        '[class*="overlay"]',
-        '[class*="layer_popup"]', '[class*="layerPopup"]',
-        '[class*="dim_layer"]', '[class*="dimLayer"]',
-        '[id*="popup"]', '[id*="layer"]',
+        // 팝업/모달/오버레이
+        '[class*="popup"]', '[class*="modal"]', '[class*="dialog"]',
+        '[class*="overlay"]', '[class*="dimmed"]', '[class*="dim"]',
+        '[class*="layer_popup"]', '[class*="layerPopup"]', '[class*="layer-popup"]',
+        '[class*="dim_layer"]', '[class*="dimLayer"]', '[class*="dim-layer"]',
+        '[id*="popup"]', '[id*="modal"]', '[id*="dialog"]',
+        // 구독/멤버십/페이월 (한국 매체 특화)
+        '[class*="subscribe"]', '[id*="subscribe"]',
+        '[class*="membership"]', '[id*="membership"]',
+        '[class*="paywall"]', '[id*="paywall"]',
+        '[class*="payWall"]', '[id*="payWall"]',
+        '[class*="premium"]', '[id*="premium"]',
+        '[class*="promotion"]', '[id*="promotion"]',
+        // 뉴스 알림
         '.news_alert_wrap', '#news_alert',
-        '[class*="floating"]',
+        '[class*="noti"]', '[id*="notification"]',
+        // 앱 설치 배너
         '[class*="app-banner"]', '[class*="appBanner"]', '[class*="app_banner"]',
         '[class*="smart-banner"]', '[class*="smartBanner"]',
+        '[class*="app-install"]', '[class*="appInstall"]',
+        // 플로팅
+        '[class*="floating"]', '[class*="float-"]',
+        '[class*="sticky-bottom"]', '[class*="stickyBottom"]',
+        // 로그인 유도
+        '[class*="login-prompt"]', '[class*="loginPrompt"]',
+        '[class*="signin-prompt"]',
       ];
 
+      let removedCount = 0;
       obstructionSelectors.forEach(sel => {
         try {
           document.querySelectorAll(sel).forEach(el => {
+            // 광고 슬롯이나 인젝션된 요소는 보존
             const isAd = el.classList?.contains('adsbygoogle') || 
                          el.id?.includes('google_ads') || 
                          el.id?.includes('ad-slot') ||
-                         el.getAttribute('data-ad-slot');
+                         el.getAttribute('data-ad-slot') ||
+                         el.getAttribute('data-injected');
             if (!isAd) {
-              el.style.display = 'none';
-              el.style.visibility = 'hidden';
+              el.remove();
+              removedCount++;
             }
           });
         } catch(e) {}
       });
 
+      // 2단계: z-index가 높은 고정/절대 위치 요소 제거 (오버레이/모달/딤 레이어)
       document.querySelectorAll('*').forEach(el => {
         const style = window.getComputedStyle(el);
-        if (style.position === 'fixed' || style.position === 'sticky') {
+        const position = style.position;
+        const zIndex = parseInt(style.zIndex) || 0;
+        
+        if ((position === 'fixed' || position === 'sticky') && zIndex > 100) {
           const isAd = el.classList?.contains('adsbygoogle') || 
                        el.id?.includes('google_ads') ||
-                       el.tagName.toLowerCase() === 'ins';
+                       el.tagName.toLowerCase() === 'ins' ||
+                       el.getAttribute('data-injected');
           if (!isAd) {
+            el.remove();
+            removedCount++;
+          }
+        }
+        
+        // 반투명 딤 레이어 제거
+        if (position === 'fixed' || position === 'absolute') {
+          const bg = style.backgroundColor;
+          const opacity = parseFloat(style.opacity);
+          if (bg && bg.includes('rgba') && opacity < 1) {
             const rect = el.getBoundingClientRect();
-            if (rect.width > window.innerWidth * 0.8 || rect.height > window.innerHeight * 0.5) {
-              el.style.display = 'none';
+            // 화면의 50% 이상 차지하는 반투명 레이어
+            if (rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5) {
+              el.remove();
+              removedCount++;
             }
           }
         }
       });
 
+      // 3단계: body 스크롤 잠금 해제
       document.body.style.overflow = 'auto';
+      document.body.style.overflowY = 'auto';
       document.documentElement.style.overflow = 'auto';
+      document.documentElement.style.overflowY = 'auto';
       document.body.style.position = 'static';
+      document.body.classList.remove('modal-open', 'no-scroll', 'scroll-lock', 'popup-open');
+      
+      console.log('[Obstruction] ' + removedCount + '개 방해요소 제거됨');
     })()
   `);
 }

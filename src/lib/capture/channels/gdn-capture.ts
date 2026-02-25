@@ -159,36 +159,27 @@ export class GdnCapture extends BaseChannel {
     // 6) 렌더링 안정화 대기
     await new Promise((r) => setTimeout(r, 2000));
 
-    // 7) 인젝션 결과 확인 + 인젝션된 슬롯 위치로 스크롤
-    const injectedCheck = await page.evaluate<{ found: boolean; count: number; scrollY: number }>(`
+    // 7) 인젝션 결과 확인
+    const injectedCheck = await page.evaluate<{ found: boolean; count: number }>(`
       (() => {
         const injected = document.querySelectorAll('[data-injected="admate"], [data-injected="admate-wrapper"]');
-        let scrollY = 0;
-        
-        if (injected.length > 0) {
-          const el = injected[0];
-          const rect = el.getBoundingClientRect();
-          // 슬롯이 화면 상단 1/3 지점에 오도록 스크롤
-          scrollY = window.scrollY + rect.top - (window.innerHeight * 0.2);
-          scrollY = Math.max(0, scrollY);
-          window.scrollTo({ top: scrollY, behavior: 'instant' });
-        }
-        
-        return { found: injected.length > 0, count: injected.length, scrollY: scrollY };
+        // 페이지 최상단으로 스크롤 복원 (전체 캡처 용)
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        return { found: injected.length > 0, count: injected.length };
       })()
     `);
-    console.log(`[GDN] 인젝션 검증: ${injectedCheck.found ? '✅' : '❌'} (${injectedCheck.count}개 요소, scrollY: ${injectedCheck.scrollY})`);
+    console.log(`[GDN] 인젝션 검증: ${injectedCheck.found ? '✅' : '❌'} (${injectedCheck.count}개 요소)`);
 
-    // 스크롤 후 렌더링 안정화
+    // 스크롤 복원 후 렌더링 안정화
     await new Promise((r) => setTimeout(r, 1000));
 
-    // 8) 스크린샷 캡처 (인젝션된 슬롯이 보이는 뷰포트)
+    // 8) 전체 페이지 스크린샷 캡처
     const screenshot = await page.screenshot({
-      fullPage: false,
+      fullPage: true,
       type: "png",
     });
 
-    console.log(`[GDN] ===== 캡처 완료 (${injectedCount}/${slots.length}개 슬롯 인젝션) =====`);
+    console.log(`[GDN] ===== 캡처 완료 (전체 페이지, ${injectedCount}/${slots.length}개 슬롯 인젝션) =====`);
 
     return screenshot;
   }
