@@ -34,11 +34,15 @@ const PUBLISHER_PRESETS: PublisherPreset[] = [
   { name: "조선일보", url: "https://www.chosun.com/", category: "뉴스", icon: "📰", adSizes: ["300x250", "970x250"], description: "종합일간지" },
   { name: "중앙일보", url: "https://www.joongang.co.kr/", category: "뉴스", icon: "📰", adSizes: ["300x250", "728x90"], description: "종합일간지" },
   { name: "동아일보", url: "https://www.donga.com/", category: "뉴스", icon: "📰", adSizes: ["300x250", "728x90"], description: "종합일간지" },
-  { name: "한국경제", url: "https://www.hankyung.com/", category: "경제", icon: "💰", adSizes: ["300x250", "970x90"], description: "경제전문지" },
+  // 경제
   { name: "매일경제", url: "https://www.mk.co.kr/", category: "경제", icon: "💰", adSizes: ["300x250", "728x90"], description: "경제전문지" },
+  { name: "머니투데이", url: "https://www.mt.co.kr/", category: "경제", icon: "💰", adSizes: ["300x250", "728x90"], description: "종합 경제미디어" },
+  { name: "헤럴드경제", url: "https://biz.heraldcorp.com/", category: "경제", icon: "💰", adSizes: ["300x250", "728x90"], description: "경제전문지" },
   // IT/테크
-  { name: "ZDNet Korea", url: "https://zdnet.co.kr/", category: "IT", icon: "💻", adSizes: ["300x250", "728x90"], description: "IT전문 미디어" },
+  { name: "ZDNet Korea", url: "https://zdnet.co.kr/", category: "IT", icon: "💻", adSizes: ["300x250", "970x90"], description: "IT전문 미디어" },
   { name: "블로터", url: "https://www.bloter.net/", category: "IT", icon: "💻", adSizes: ["300x250"], description: "테크 미디어" },
+  { name: "디지털데일리", url: "https://www.ddaily.co.kr/", category: "IT", icon: "💻", adSizes: ["300x250", "728x90"], description: "디지털 전문 미디어" },
+  { name: "전자신문", url: "https://www.etnews.com/", category: "IT", icon: "💻", adSizes: ["300x250", "728x90"], description: "전자/IT 전문지" },
   // 방송
   { name: "SBS 뉴스", url: "https://news.sbs.co.kr/", category: "방송", icon: "📺", adSizes: ["300x250", "728x90"], description: "SBS 뉴스 포털" },
   { name: "KBS 뉴스", url: "https://news.kbs.co.kr/", category: "방송", icon: "📺", adSizes: ["300x250", "728x90"], description: "KBS 뉴스 포털" },
