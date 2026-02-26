@@ -199,107 +199,134 @@ export async function injectCreative(
 }
 
 /**
- * 페이지 방해요소 제거 (강화 v2)
- * 쿠키 배너, 구독/멤버십 팝업, 페이월, 딤 레이어, 앱 설치 배너 등
+ * 페이지 방해요소 제거 (v3 — 안전 모드)
+ * 
+ * v3 핵심 변경:
+ * - remove() 대신 display:none으로 숨김 (레이아웃 붕괴 방지)
+ * - 레이아웃 필수 요소(header, nav, main, article, section, footer) 보호
+ * - 광고 슬롯/인젝션 요소 보호
+ * - z-index 기준 대폭 상향 (100→9999) — 네비게이션 보존
+ * - body.position 변경 제거 — 레이아웃 유지
  */
 export async function removePageObstructions(page: IPageHandle): Promise<void> {
   await page.evaluate<void>(`
     (() => {
-      // 1단계: 셀렉터 기반 제거
+      let hiddenCount = 0;
+
+      // 🔑 보호 대상 판별 함수: 레이아웃 필수 요소는 절대 건드리지 않음
+      function isProtected(el) {
+        // 1) 광고/인젝션 요소 보호
+        if (el.classList?.contains('adsbygoogle') ||
+            el.id?.includes('google_ads') ||
+            el.id?.includes('ad-slot') ||
+            el.id?.includes('ad_') ||
+            el.id?.includes('div-gpt-ad') ||
+            el.getAttribute('data-ad-slot') ||
+            el.getAttribute('data-injected') ||
+            el.getAttribute('data-google-query-id') ||
+            el.tagName?.toLowerCase() === 'ins') {
+          return true;
+        }
+
+        // 2) 레이아웃 필수 태그 보호
+        const tag = el.tagName?.toLowerCase() || '';
+        if (['header', 'nav', 'main', 'article', 'section', 'footer', 'aside'].includes(tag)) {
+          return true;
+        }
+
+        // 3) 메인 콘텐츠 컨테이너 보호
+        const cl = (el.className || '').toLowerCase();
+        const id = (el.id || '').toLowerCase();
+        const contentPatterns = ['content', 'article', 'news', 'story', 'post', 'main', 'wrapper', 'container', 'layout', 'page', 'body', 'site', 'gnb', 'lnb', 'menu', 'nav'];
+        for (const p of contentPatterns) {
+          if ((cl.includes(p) && !cl.includes('popup') && !cl.includes('modal') && !cl.includes('cookie')) ||
+              (id.includes(p) && !id.includes('popup') && !id.includes('modal'))) {
+            // 콘텐츠 영역 내부의 자식이 많으면 보호
+            if (el.children?.length > 3) return true;
+          }
+        }
+
+        // 4) 텍스트가 많은 요소 보호 (실제 콘텐츠)
+        const textLen = (el.textContent || '').trim().length;
+        if (textLen > 500) return true;
+
+        return false;
+      }
+
+      // 안전하게 요소 숨기기 (remove 대신 display:none)
+      function safeHide(el) {
+        if (isProtected(el)) return false;
+        el.style.setProperty('display', 'none', 'important');
+        el.style.setProperty('visibility', 'hidden', 'important');
+        el.style.setProperty('opacity', '0', 'important');
+        hiddenCount++;
+        return true;
+      }
+
+      // 1단계: 셀렉터 기반 숨김 (좁은 범위만)
       const obstructionSelectors = [
-        // 쿠키/동의
-        '[class*="cookie"]', '[id*="cookie"]',
-        '[class*="consent"]', '[id*="consent"]',
+        // 쿠키/동의 (확실한 것만)
+        '[class*="cookie-banner"]', '[id*="cookie-banner"]',
+        '[class*="cookie-consent"]', '[id*="cookie-consent"]',
+        '[class*="consent-banner"]', '[id*="consent-banner"]',
         '[class*="gdpr"]', '[id*="gdpr"]',
         '.cc-banner', '.cc-window',
-        '[class*="privacy"]', '[id*="privacy"]',
-        // 팝업/모달/오버레이
-        '[class*="popup"]', '[class*="modal"]', '[class*="dialog"]',
-        '[class*="overlay"]', '[class*="dimmed"]', '[class*="dim"]',
+        // 팝업/모달 (확실한 것만)
+        '[class*="modal-overlay"]', '[class*="modal-backdrop"]',
+        '[class*="popup-overlay"]', '[class*="popup-dimmed"]',
         '[class*="layer_popup"]', '[class*="layerPopup"]', '[class*="layer-popup"]',
         '[class*="dim_layer"]', '[class*="dimLayer"]', '[class*="dim-layer"]',
-        '[id*="popup"]', '[id*="modal"]', '[id*="dialog"]',
-        // 구독/멤버십/페이월 (한국 매체 특화)
-        '[class*="subscribe"]', '[id*="subscribe"]',
-        '[class*="membership"]', '[id*="membership"]',
+        // 구독/페이월 (확실한 것만)
         '[class*="paywall"]', '[id*="paywall"]',
         '[class*="payWall"]', '[id*="payWall"]',
-        '[class*="premium"]', '[id*="premium"]',
-        '[class*="promotion"]', '[id*="promotion"]',
-        // 뉴스 알림
-        '.news_alert_wrap', '#news_alert',
-        '[class*="noti"]', '[id*="notification"]',
         // 앱 설치 배너
         '[class*="app-banner"]', '[class*="appBanner"]', '[class*="app_banner"]',
         '[class*="smart-banner"]', '[class*="smartBanner"]',
         '[class*="app-install"]', '[class*="appInstall"]',
-        // 플로팅
-        '[class*="floating"]', '[class*="float-"]',
-        '[class*="sticky-bottom"]', '[class*="stickyBottom"]',
         // 로그인 유도
         '[class*="login-prompt"]', '[class*="loginPrompt"]',
         '[class*="signin-prompt"]',
       ];
 
-      let removedCount = 0;
       obstructionSelectors.forEach(sel => {
         try {
-          document.querySelectorAll(sel).forEach(el => {
-            // 광고 슬롯이나 인젝션된 요소는 보존
-            const isAd = el.classList?.contains('adsbygoogle') || 
-                         el.id?.includes('google_ads') || 
-                         el.id?.includes('ad-slot') ||
-                         el.getAttribute('data-ad-slot') ||
-                         el.getAttribute('data-injected');
-            if (!isAd) {
-              el.remove();
-              removedCount++;
-            }
-          });
+          document.querySelectorAll(sel).forEach(el => safeHide(el));
         } catch(e) {}
       });
 
-      // 2단계: z-index가 높은 고정/절대 위치 요소 제거 (오버레이/모달/딤 레이어)
+      // 2단계: 전체 화면 딤/오버레이만 제거 (z-index 매우 높은 것만)
       document.querySelectorAll('*').forEach(el => {
         const style = window.getComputedStyle(el);
         const position = style.position;
         const zIndex = parseInt(style.zIndex) || 0;
         
-        if ((position === 'fixed' || position === 'sticky') && zIndex > 100) {
-          const isAd = el.classList?.contains('adsbygoogle') || 
-                       el.id?.includes('google_ads') ||
-                       el.tagName.toLowerCase() === 'ins' ||
-                       el.getAttribute('data-injected');
-          if (!isAd) {
-            el.remove();
-            removedCount++;
-          }
+        // z-index 9999 이상 && position:fixed인 것만 (확실한 모달/딤)
+        if (position === 'fixed' && zIndex >= 9999) {
+          safeHide(el);
         }
         
-        // 반투명 딤 레이어 제거
-        if (position === 'fixed' || position === 'absolute') {
+        // 전체 화면 커버 딤 레이어만 제거 (80% 이상 차지 + 반투명)
+        if (position === 'fixed') {
           const bg = style.backgroundColor;
           const opacity = parseFloat(style.opacity);
-          if (bg && bg.includes('rgba') && opacity < 1) {
+          if (bg && bg.includes('rgba') && opacity < 0.9) {
             const rect = el.getBoundingClientRect();
-            // 화면의 50% 이상 차지하는 반투명 레이어
-            if (rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5) {
-              el.remove();
-              removedCount++;
+            if (rect.width > window.innerWidth * 0.8 && rect.height > window.innerHeight * 0.8) {
+              safeHide(el);
             }
           }
         }
       });
 
-      // 3단계: body 스크롤 잠금 해제
+      // 3단계: body 스크롤 잠금만 해제 (position은 절대 변경 안 함)
       document.body.style.overflow = 'auto';
       document.body.style.overflowY = 'auto';
       document.documentElement.style.overflow = 'auto';
       document.documentElement.style.overflowY = 'auto';
-      document.body.style.position = 'static';
+      // ⚠️ body.position은 변경하지 않음 — 레이아웃 유지
       document.body.classList.remove('modal-open', 'no-scroll', 'scroll-lock', 'popup-open');
       
-      console.log('[Obstruction] ' + removedCount + '개 방해요소 제거됨');
+      console.log('[Obstruction v3] ' + hiddenCount + '개 방해요소 숨김 처리');
     })()
   `);
 }

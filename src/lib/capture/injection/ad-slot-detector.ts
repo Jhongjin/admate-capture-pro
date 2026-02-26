@@ -132,6 +132,31 @@ export async function detectAdSlots(page: IPageHandle): Promise<DetectedSlot[]> 
         if (el.parentElement) addSlot(el.parentElement, 'gdn-iframe', 85);
       });
 
+      // 전략 2.5: 일반 광고 iframe (비-구글, ZDNet/국내 네트워크 등)
+      document.querySelectorAll('iframe').forEach(el => {
+        if (seenElements.has(el)) return;
+        const rect = el.getBoundingClientRect();
+        // 배너 크기 iframe만 (200x50 이상, 1200px 이하)
+        if (rect.width >= 200 && rect.height >= 50 && rect.width <= 1200 && rect.height <= 700) {
+          const src = (el.src || '').toLowerCase();
+          const id = (el.id || '').toLowerCase();
+          const cls = (el.className || '').toLowerCase();
+          // 콘텐츠 iframe 제외 (유튜브/비메오/네이버TV 등)
+          const isContent = src.includes('youtube.com') || src.includes('vimeo.com') || 
+                           src.includes('tv.naver.com') || src.includes('play.naver.com');
+          if (!isContent) {
+            // 광고 관련 힌트가 있으면 높은 점수
+            const hasAdHint = src.includes('ad') || src.includes('banner') || src.includes('mobon') || 
+                             src.includes('cauly') || src.includes('dable') || src.includes('criteo') ||
+                             id.includes('ad') || cls.includes('ad') || cls.includes('banner');
+            addSlot(el, 'ad-container', hasAdHint ? 80 : 60);
+            if (el.parentElement && !seenElements.has(el.parentElement)) {
+              addSlot(el.parentElement, 'ad-container', hasAdHint ? 75 : 55);
+            }
+          }
+        }
+      });
+
       // 전략 3: 광고 관련 클래스/ID를 가진 컨테이너
       const adSelectors = [
         '[class*="ad-slot"]', '[class*="adSlot"]', '[class*="ad_slot"]',
@@ -151,6 +176,12 @@ export async function detectAdSlots(page: IPageHandle): Promise<DetectedSlot[]> 
         '.ads-area', '.ad-area', '#ad-area',
         // Google DFP/GAM 광고
         '[id*="div-gpt-ad"]',
+        // 국내 광고 네트워크 (ZDNet, 블로터 등)
+        '[class*="zc-banner"]', '[class*="zdk"]',
+        '[class*="mobon"]', '[class*="cauly"]', '[class*="dable"]',
+        '[class*="ad_content"]', '[class*="adContent"]',
+        '[class*="sponsor"]', '[id*="sponsor"]',
+        '[class*="commercial"]', '[id*="commercial"]',
       ];
       
       adSelectors.forEach(sel => {
