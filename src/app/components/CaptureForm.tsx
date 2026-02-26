@@ -141,7 +141,7 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
 
   // 이미지 업로드 관련 상태
   const [uploadMode, setUploadMode] = useState<"upload" | "url">("upload");
-  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number; preview: string } | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number; preview: string; width?: number; height?: number } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -175,10 +175,20 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
       return;
     }
 
-    // 미리보기 생성
+    // 미리보기 생성 + 이미지 사이즈 감지
     const preview = URL.createObjectURL(file);
-    setUploadedFile({ name: file.name, size: file.size, preview });
     setIsUploading(true);
+
+    // 📐 이미지 실제 픽셀 사이즈 감지
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => resolve({ width: 0, height: 0 });
+      img.src = preview;
+    });
+
+    setUploadedFile({ name: file.name, size: file.size, preview, width: dimensions.width, height: dimensions.height });
+    console.log(`[CaptureForm] 📐 업로드 배너 사이즈: ${dimensions.width}x${dimensions.height}`);
 
     try {
       const formData = new FormData();
@@ -193,7 +203,7 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
 
       // 업로드 성공 → creativeUrl 설정
       setForm((prev) => ({ ...prev, creativeUrl: result.url }));
-      showToast("success", "소재 이미지가 업로드되었습니다!");
+      showToast("success", `소재 이미지 업로드 완료! (${dimensions.width}×${dimensions.height})`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "업로드 실패";
       showToast("error", msg);
@@ -300,6 +310,10 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
           captureLanding: form.captureLanding,
           injectionMode: form.injectionMode,
           slotCount: form.slotCount,
+          // 📐 업로드한 배너의 실제 사이즈 (슬롯 매칭용)
+          creativeDimensions: uploadedFile?.width && uploadedFile?.height
+            ? { width: uploadedFile.width, height: uploadedFile.height }
+            : undefined,
         }),
       });
 
@@ -672,6 +686,11 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
                       </p>
                       <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
                         {formatFileSize(uploadedFile.size)}
+                        {uploadedFile.width && uploadedFile.height && (
+                          <span className="ml-1" style={{ color: "var(--color-accent)" }}>
+                            📐 {uploadedFile.width}×{uploadedFile.height}
+                          </span>
+                        )}
                         {!isUploading && form.creativeUrl && (
                           <span className="ml-2" style={{ color: "var(--color-success)" }}>✓ 업로드 완료</span>
                         )}

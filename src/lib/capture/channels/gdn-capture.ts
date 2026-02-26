@@ -166,6 +166,28 @@ export class GdnCapture extends BaseChannel {
     this.diagnostics.slotsDetected = slots.length;
     console.log(`[GDN] 탐지된 슬롯: ${slots.length}개`);
     
+    // 📐 배너 사이즈 매칭: 업로드된 배너와 유사한 슬롯을 우선 정렬
+    const creativeDims = request.options?.creativeDimensions as { width: number; height: number } | undefined;
+    if (creativeDims && creativeDims.width > 0 && creativeDims.height > 0) {
+      console.log(`[GDN] 📐 배너 사이즈 매칭 활성화: ${creativeDims.width}x${creativeDims.height}`);
+      const creativeAspect = creativeDims.width / creativeDims.height;
+
+      // 각 슬롯에 사이즈 매칭 점수 부여
+      slots.sort((a, b) => {
+        const scoreA = this.calcSizeMatchScore(a, creativeDims, creativeAspect);
+        const scoreB = this.calcSizeMatchScore(b, creativeDims, creativeAspect);
+        // 높은 점수 우선 (동점이면 기존 confidence 우선)
+        if (scoreB !== scoreA) return scoreB - scoreA;
+        return b.confidence - a.confidence;
+      });
+
+      console.log(`[GDN] 📐 매칭 후 슬롯 순서:`);
+      slots.slice(0, 5).forEach((s, i) => {
+        const score = this.calcSizeMatchScore(s, creativeDims, creativeAspect);
+        console.log(`[GDN]   [${i}] ${s.width}x${s.height} matchScore:${score.toFixed(1)} conf:${s.confidence}`);
+      });
+    }
+    
     // 슬롯 상세 로깅
     slots.forEach((s, i) => {
       console.log(`[GDN]   [${i}] ${s.type} ${s.width}x${s.height} conf:${s.confidence} sel:${s.selector.substring(0, 80)}`);
@@ -275,6 +297,41 @@ export class GdnCapture extends BaseChannel {
     console.log(`[GDN] ===== 캡처 완료 (전체 페이지, ${injectedCount}/${slots.length}개 슬롯 인젝션) =====`);
 
     return screenshot;
+  }
+
+  /**
+   * 📐 배너 사이즈 매칭 점수 계산
+   * 
+   * 점수 구성 (0~100):
+   * - 종횡비 일치도: 40점 (가로형↔가로형 매칭이 핵심)
+   * - 크기 근접도: 60점 (픽셀 단위 유사도)
+   * 
+   * 예시: 728x90 배너
+   *   - 728x90 슬롯 → 100점 (완벽 매칭)
+   *   - 970x90 슬롯 → ~85점 (같은 가로형, 너비만 다름)
+   *   - 300x250 슬롯 → ~20점 (종횡비 완전히 다름)
+   */
+  private calcSizeMatchScore(
+    slot: DetectedSlot,
+    creativeDims: { width: number; height: number },
+    creativeAspect: number
+  ): number {
+    if (slot.width <= 0 || slot.height <= 0) return 0;
+
+    const slotAspect = slot.width / slot.height;
+    
+    // 1) 종횡비 유사도 (0~40점)
+    // log 비율 차이로 계산: 같으면 0, 크게 다르면 큰 값
+    const aspectDiff = Math.abs(Math.log(creativeAspect) - Math.log(slotAspect));
+    const aspectScore = Math.max(0, 40 - aspectDiff * 30);
+
+    // 2) 크기 근접도 (0~60점)
+    // 너비와 높이 각각의 차이 비율
+    const widthRatio = Math.min(slot.width, creativeDims.width) / Math.max(slot.width, creativeDims.width);
+    const heightRatio = Math.min(slot.height, creativeDims.height) / Math.max(slot.height, creativeDims.height);
+    const sizeScore = ((widthRatio + heightRatio) / 2) * 60;
+
+    return Math.round((aspectScore + sizeScore) * 10) / 10;
   }
 
   /** 최종 폴백: 광고가 있을만한 위치에 강제 오버레이 */
