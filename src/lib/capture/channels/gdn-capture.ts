@@ -89,8 +89,65 @@ export class GdnCapture extends BaseChannel {
       timeout: 30000,
     });
 
-    // 3) 광고 로드 대기
-    await new Promise((r) => setTimeout(r, 5000));
+    // 2.5) 🔑 Lazy Loading 이미지 강제 로드
+    // — 전체 페이지를 스크롤하여 Intersection Observer 기반 지연 로딩 트리거
+    // — loading="lazy" 속성을 eager로 변경
+    // — data-src, data-lazy-src 등을 src로 복원
+    console.log("[GDN] 🔄 Lazy Loading 이미지 강제 로드 시작...");
+    await page.evaluate<void>(`
+      (async () => {
+        // 1) loading="lazy" → "eager" 강제 전환
+        document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+          img.setAttribute('loading', 'eager');
+        });
+
+        // 2) data-src, data-lazy-src 등 → src 복원
+        const lazyAttrs = ['data-src', 'data-lazy-src', 'data-original', 'data-lazy', 'data-srcset'];
+        document.querySelectorAll('img').forEach(img => {
+          for (const attr of ${JSON.stringify(['data-src', 'data-lazy-src', 'data-original', 'data-lazy'])}) {
+            const val = img.getAttribute(attr);
+            if (val && !img.src.startsWith('data:') && (!img.src || img.src.includes('placeholder') || img.src.includes('blank') || img.naturalWidth === 0)) {
+              img.src = val;
+              img.removeAttribute(attr);
+              break;
+            }
+          }
+          // data-srcset → srcset
+          const lazySrcset = img.getAttribute('data-srcset');
+          if (lazySrcset && !img.srcset) {
+            img.srcset = lazySrcset;
+          }
+        });
+
+        // 3) <source> 태그의 data-srcset도 처리 (picture 요소)
+        document.querySelectorAll('source[data-srcset]').forEach(source => {
+          const val = source.getAttribute('data-srcset');
+          if (val) {
+            source.setAttribute('srcset', val);
+            source.removeAttribute('data-srcset');
+          }
+        });
+
+        // 4) 전체 페이지 자동 스크롤 — Intersection Observer 트리거
+        const scrollStep = Math.max(window.innerHeight * 0.8, 600);
+        const maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+        
+        for (let y = 0; y < maxScroll; y += scrollStep) {
+          window.scrollTo({ top: y, behavior: 'instant' });
+          await new Promise(r => setTimeout(r, 300));
+        }
+        // 맨 아래까지 확실히
+        window.scrollTo({ top: maxScroll, behavior: 'instant' });
+        await new Promise(r => setTimeout(r, 500));
+
+        // 5) 다시 맨 위로 복원
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      })()
+    `);
+    console.log("[GDN] ✅ Lazy Loading 이미지 강제 로드 완료");
+
+    // 3) 광고 로드 + 이미지 렌더링 대기
+    await new Promise((r) => setTimeout(r, 3000));
 
     // 4) 광고 슬롯 탐지
     const slots = await detectAdSlots(page);
