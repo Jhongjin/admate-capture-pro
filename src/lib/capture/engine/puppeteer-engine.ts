@@ -199,35 +199,100 @@ export class PuppeteerEngine implements IBrowserEngine {
     if (!this.browser) throw new Error("Browser not launched. Call launch() first.");
     const page = await this.browser.newPage();
 
-    // 🔑 Cloudflare / 봇 감지 우회를 위한 스텔스 설정
+    // 🔑 Cloudflare / 봇 감지 우회를 위한 강화 스텔스 설정
+
+    // 0) CDP 프로토콜로 webdriver 플래그 근본 제거 (JS 레벨보다 확실)
+    const client = (page as any)._client?.();
+    if (client) {
+      try {
+        await client.send('Page.addScriptToEvaluateOnNewDocument', {
+          source: 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})',
+        });
+        // Headless 힌트 제거
+        await client.send('Network.setUserAgentOverride', {
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          acceptLanguage: 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+          platform: 'Win32',
+          userAgentMetadata: {
+            brands: [
+              { brand: 'Google Chrome', version: '131' },
+              { brand: 'Chromium', version: '131' },
+              { brand: 'Not_A Brand', version: '24' },
+            ],
+            fullVersion: '131.0.6778.109',
+            platform: 'Windows',
+            platformVersion: '15.0.0',
+            architecture: 'x86',
+            model: '',
+            mobile: false,
+          },
+        });
+      } catch (cdpErr) {
+        console.warn('[PuppeteerEngine] CDP 설정 실패 (비치명적):', cdpErr);
+      }
+    }
+
     // 1) User-Agent — 최신 Chrome (Headless 힌트 없음)
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     );
 
-    // 2) navigator.webdriver 제거 + 브라우저 핑거프린트 위장
+    // 2) navigator.webdriver 제거 + 브라우저 핑거프린트 위장 (강화 v2)
     await page.evaluateOnNewDocument(`
-      // navigator.webdriver 제거
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      // navigator.webdriver 제거 (다중 방어)
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      delete navigator.__proto__.webdriver;
 
       // navigator.languages 설정
       Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+      Object.defineProperty(navigator, 'language', { get: () => 'ko-KR' });
 
       // navigator.plugins 위장 (빈 배열이면 봇으로 감지)
       Object.defineProperty(navigator, 'plugins', {
-        get: () => [
-          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
-          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
-          { name: 'Native Client', filename: 'internal-nacl-plugin' },
-        ],
+        get: () => {
+          const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
+          ];
+          plugins.refresh = () => {};
+          plugins.item = (i) => plugins[i] || null;
+          plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
+          return plugins;
+        },
       });
 
-      // chrome 객체 위장
+      // navigator.mimeTypes 위장
+      Object.defineProperty(navigator, 'mimeTypes', {
+        get: () => {
+          const mimes = [
+            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+          ];
+          mimes.item = (i) => mimes[i] || null;
+          mimes.namedItem = (name) => mimes.find(m => m.type === name) || null;
+          mimes.refresh = () => {};
+          return mimes;
+        },
+      });
+
+      // chrome 객체 위장 (더 정교하게)
       window.chrome = {
-        runtime: {},
-        loadTimes: function() {},
-        csi: function() {},
-        app: { isInstalled: false },
+        runtime: {
+          onInstalled: { addListener: () => {} },
+          onMessage: { addListener: () => {} },
+          connect: () => {},
+          sendMessage: () => {},
+          id: undefined,
+        },
+        loadTimes: function() { return {}; },
+        csi: function() { return {}; },
+        app: {
+          isInstalled: false,
+          InstallState: { INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+          RunningState: { RUNNING: 'running', CANNOT_RUN: 'cannot_run' },
+          getDetails: () => null,
+          getIsInstalled: () => false,
+        },
       };
 
       // permissions.query 위장
@@ -244,18 +309,69 @@ export class PuppeteerEngine implements IBrowserEngine {
         if (parameter === 37446) return 'Intel Iris OpenGL Engine';
         return getParameter.call(this, parameter);
       };
+
+      // WebGL2 렌더러도 위장
+      if (typeof WebGL2RenderingContext !== 'undefined') {
+        const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
+        WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+          if (parameter === 37445) return 'Intel Inc.';
+          if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+          return getParameter2.call(this, parameter);
+        };
+      }
+
+      // iframe contentWindow 감지 우회 (Cloudflare가 이를 통해 headless 확인)
+      const originalAttachShadow = Element.prototype.attachShadow;
+      Element.prototype.attachShadow = function() {
+        return originalAttachShadow.apply(this, arguments);
+      };
+
+      // connection / rtt 네트워크 정보 위장
+      if (navigator.connection) {
+        Object.defineProperty(navigator.connection, 'rtt', { get: () => 50 });
+      }
+
+      // hardwareConcurrency & deviceMemory 위장
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+      // Notification 위장
+      if (typeof Notification === 'undefined') {
+        window.Notification = { permission: 'default' };
+      }
+
+      // canvas fingerprint 노이즈 (Cloudflare canvas 감지 대응)
+      const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function(type) {
+        if (type === 'image/png' || !type) {
+          const ctx = this.getContext('2d');
+          if (ctx && this.width > 0 && this.height > 0) {
+            const style = ctx.fillStyle;
+            ctx.fillStyle = 'rgba(255,255,255,0.01)';
+            ctx.fillRect(0, 0, 1, 1);
+            ctx.fillStyle = style;
+          }
+        }
+        return originalToDataURL.apply(this, arguments);
+      };
     `);
 
     // 3) CSP 우회 — 외부 이미지 인젝션 허용
     await page.setBypassCSP(true);
 
-    // 4) Extra HTTP 헤더 설정 (Cloudflare 검사용)
+    // 4) Extra HTTP 헤더 설정 (Cloudflare 검사용) — 강화
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
       'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
       'sec-ch-ua-mobile': '?0',
       'sec-ch-ua-platform': '"Windows"',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
+      'upgrade-insecure-requests': '1',
     });
 
     return new PuppeteerPageHandle(page);

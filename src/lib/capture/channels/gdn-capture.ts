@@ -86,11 +86,17 @@ export class GdnCapture extends BaseChannel {
     // 2) 페이지 로드
     await page.goto(request.publisherUrl, {
       waitUntil: "networkidle2",
-      timeout: 30000,
+      timeout: 45000,
     });
 
+    // 2.1) 🛡️ Cloudflare / 봇 감지 챌린지 대기
+    const isBlocked = await this.waitForCloudflareClearance(page);
+    if (isBlocked) {
+      console.warn(`[GDN] ⚠️ Cloudflare 챌린지 통과 실패 — 그래도 진행 시도`);
+    }
+
     // 2.5) 🔑 Lazy Loading 이미지 강제 로드
-    // — 전체 페이지를 스크롤하여 Intersection Observer 기반 지연 로딩 트리거
+    // — 콘텐츠 영역만 제한적 스크롤 (뷰포트 5배까지)
     // — loading="lazy" 속성을 eager로 변경
     // — data-src, data-lazy-src 등을 src로 복원
     console.log("[GDN] 🔄 Lazy Loading 이미지 강제 로드 시작...");
@@ -102,7 +108,6 @@ export class GdnCapture extends BaseChannel {
         });
 
         // 2) data-src, data-lazy-src 등 → src 복원
-        const lazyAttrs = ['data-src', 'data-lazy-src', 'data-original', 'data-lazy', 'data-srcset'];
         document.querySelectorAll('img').forEach(img => {
           for (const attr of ${JSON.stringify(['data-src', 'data-lazy-src', 'data-original', 'data-lazy'])}) {
             const val = img.getAttribute(attr);
@@ -128,20 +133,27 @@ export class GdnCapture extends BaseChannel {
           }
         });
 
-        // 4) 전체 페이지 자동 스크롤 — Intersection Observer 트리거
-        const scrollStep = Math.max(window.innerHeight * 0.8, 600);
-        const maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+        // 4) 제한적 스크롤 — 뷰포트 5배 높이까지만 (상단 콘텐츠 보존)
+        const viewportH = window.innerHeight || 900;
+        const scrollStep = Math.max(viewportH * 0.7, 500);
+        const maxScrollTarget = viewportH * 5; // 뷰포트 5배까지만
+        const actualMax = Math.min(
+          maxScrollTarget,
+          Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)
+        );
         
-        for (let y = 0; y < maxScroll; y += scrollStep) {
+        for (let y = 0; y < actualMax; y += scrollStep) {
           window.scrollTo({ top: y, behavior: 'instant' });
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 200));
         }
-        // 맨 아래까지 확실히
-        window.scrollTo({ top: maxScroll, behavior: 'instant' });
-        await new Promise(r => setTimeout(r, 500));
 
-        // 5) 다시 맨 위로 복원
+        // 5) 맨 위로 복원 + 확실한 렌더링 대기
         window.scrollTo({ top: 0, behavior: 'instant' });
+        await new Promise(r => setTimeout(r, 300));
+        // 이중 복원: 일부 사이트에서 scrollTo가 무시될 수 있음
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
       })()
     `);
     console.log("[GDN] ✅ Lazy Loading 이미지 강제 로드 완료");
@@ -228,19 +240,31 @@ export class GdnCapture extends BaseChannel {
     // 6) 렌더링 안정화 대기
     await new Promise((r) => setTimeout(r, 2000));
 
-    // 7) 인젝션 결과 확인
+    // 7) 인젝션 결과 확인 + 스크롤 최상단 복원
     const injectedCheck = await page.evaluate<{ found: boolean; count: number }>(`
       (() => {
         const injected = document.querySelectorAll('[data-injected="admate"], [data-injected="admate-wrapper"]');
-        // 페이지 최상단으로 스크롤 복원 (전체 캡처 용)
+        // 🔑 페이지 최상단으로 확실하게 복원 (3중 방어)
         window.scrollTo({ top: 0, behavior: 'instant' });
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
         return { found: injected.length > 0, count: injected.length };
       })()
     `);
     console.log(`[GDN] 인젝션 검증: ${injectedCheck.found ? '✅' : '❌'} (${injectedCheck.count}개 요소)`);
 
-    // 스크롤 복원 후 렌더링 안정화
-    await new Promise((r) => setTimeout(r, 1000));
+    // 🔑 스크롤 복원 후 충분한 렌더링 안정화 (블로터 등 동적 사이트 대응)
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // 최종 스크롤 위치 확인
+    const scrollCheck = await page.evaluate<{ scrollY: number; bodyH: number }>(`
+      (() => ({
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        bodyH: document.body.scrollHeight
+      }))()
+    `);
+    console.log(`[GDN] 스크롤 위치 확인: scrollY=${scrollCheck.scrollY}, bodyH=${scrollCheck.bodyH}`);
 
     // 8) 전체 페이지 스크린샷 캡처
     const screenshot = await page.screenshot({
@@ -343,5 +367,69 @@ export class GdnCapture extends BaseChannel {
       })()
     `);
     console.log(`[GDN] DOM 디버그:\\n${debugInfo}`);
+  }
+
+  /**
+   * 🛡️ Cloudflare / 봇 감지 챌린지 대기
+   * Cloudflare JS Challenge 또는 Turnstile이 감지되면 최대 20초 대기
+   * @returns true = 여전히 차단 중, false = 통과됨
+   */
+  private async waitForCloudflareClearance(page: IPageHandle): Promise<boolean> {
+    const MAX_WAIT_MS = 20000;
+    const CHECK_INTERVAL_MS = 2000;
+    let elapsed = 0;
+
+    while (elapsed < MAX_WAIT_MS) {
+      const checkResult = await page.evaluate<{ isChallenge: boolean; title: string; hasContent: boolean }>(`
+        (() => {
+          const title = document.title || '';
+          const bodyText = (document.body?.innerText || '').substring(0, 2000);
+          
+          // Cloudflare 챌린지 페이지 감지 패턴
+          const cfPatterns = [
+            /just a moment/i,
+            /checking your browser/i,
+            /please wait/i,
+            /attention required/i,
+            /cloudflare/i,
+            /enable javascript/i,
+            /verify you are human/i,
+            /ray id/i,
+          ];
+          
+          const isTitleChallenge = cfPatterns.some(p => p.test(title));
+          const isBodyChallenge = cfPatterns.some(p => p.test(bodyText));
+          
+          // Cloudflare 전용 요소 감지
+          const hasCfElements = !!(document.querySelector('#cf-wrapper') ||
+            document.querySelector('.cf-browser-verification') ||
+            document.querySelector('#challenge-form') ||
+            document.querySelector('#challenge-running') ||
+            document.querySelector('[class*="challenge"]') ||
+            document.querySelector('iframe[src*="challenges.cloudflare.com"]'));
+          
+          // 실제 콘텐츠가 있는지 (기사, 광고 등)
+          const hasContent = document.querySelectorAll('article, [class*="article"], [class*="content"], main, .news, #content, ins.adsbygoogle, iframe[id*="google_ads"]').length > 0;
+          
+          const isChallenge = (isTitleChallenge || isBodyChallenge || hasCfElements) && !hasContent;
+          
+          return { isChallenge, title, hasContent };
+        })()
+      `);
+
+      if (!checkResult.isChallenge) {
+        if (elapsed > 0) {
+          console.log(`[GDN] ✅ Cloudflare 챌린지 통과 (${elapsed}ms 대기, title: "${checkResult.title}")`);
+        }
+        return false; // 통과
+      }
+
+      console.log(`[GDN] 🛡️ Cloudflare 챌린지 감지 — 대기 중... (${elapsed}ms/${MAX_WAIT_MS}ms, title: "${checkResult.title}")`);
+      await new Promise((r) => setTimeout(r, CHECK_INTERVAL_MS));
+      elapsed += CHECK_INTERVAL_MS;
+    }
+
+    console.warn(`[GDN] ❌ Cloudflare 챌린지 타임아웃 (${MAX_WAIT_MS}ms)`);
+    return true; // 여전히 차단 중
   }
 }
