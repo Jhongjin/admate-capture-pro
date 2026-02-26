@@ -23,6 +23,14 @@ const DEFAULT_VIEWPORT: IViewport = {
   isMobile: false,
 };
 
+/** Vercel 서버리스 환경용 뷰포트 (메모리 최적화) */
+const VERCEL_VIEWPORT: IViewport = {
+  width: 1920,
+  height: 1080,
+  deviceScaleFactor: 1,
+  isMobile: false,
+};
+
 const BROWSER_ARGS = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
@@ -157,7 +165,7 @@ export class PuppeteerEngine implements IBrowserEngine {
         try {
           this.browser = await puppeteer.default.launch({
             args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
-            defaultViewport: chromium.defaultViewport,
+            defaultViewport: VERCEL_VIEWPORT,
             executablePath: execPath,
             headless: chromium.headless,
             ignoreHTTPSErrors: true,
