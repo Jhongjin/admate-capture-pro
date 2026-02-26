@@ -61,6 +61,8 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCapture, setSelectedCapture] = useState<CaptureRecord | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: "single" | "all"; id?: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   /** 캡처 목록 조회 */
   const fetchCaptures = useCallback(async () => {
@@ -109,6 +111,48 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
     },
     { all: 0 } as Record<string, number>
   );
+
+  /** 개별 캡처 삭제 */
+  const handleDelete = async (captureId: string) => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch("/api/captures", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: captureId }),
+      });
+      if (res.ok) {
+        setCaptures((prev) => prev.filter((c) => c.id !== captureId));
+        setSelectedCapture(null);
+      }
+    } catch (err) {
+      console.error("[CaptureList] 삭제 실패:", err);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirm(null);
+    }
+  };
+
+  /** 전체 삭제 */
+  const handleDeleteAll = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch("/api/captures", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) {
+        setCaptures([]);
+        setSelectedCapture(null);
+      }
+    } catch (err) {
+      console.error("[CaptureList] 전체 삭제 실패:", err);
+    } finally {
+      setIsDeleting(false);
+      setDeleteConfirm(null);
+    }
+  };
 
   return (
     <div className="animate-fade-in delay-200">
@@ -161,6 +205,22 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
             </button>
           ))}
         </div>
+
+        {/* 전체 삭제 버튼 */}
+        {captures.length > 0 && (
+          <button
+            onClick={() => setDeleteConfirm({ type: "all" })}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                       text-[var(--color-error)] hover:bg-[rgba(239,68,68,0.1)]
+                       border border-[rgba(239,68,68,0.2)] transition-all"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            전체 삭제
+          </button>
+        )}
       </div>
 
       {/* 리스트 */}
@@ -201,7 +261,7 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
                   key={capture.id}
                   onClick={() => setSelectedCapture(capture)}
                   className={`
-                    flex items-center gap-4 p-4 cursor-pointer transition-all duration-200
+                    group flex items-center gap-4 p-4 cursor-pointer transition-all duration-200
                     hover:bg-[var(--color-bg-elevated)]
                     ${isActive ? "bg-[var(--color-accent-subtle)]" : ""}
                   `}
@@ -259,11 +319,28 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
                     )}
                   </div>
 
-                  {/* 화살표 */}
-                  <div className="flex-shrink-0 text-[var(--color-text-muted)]">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
+                  {/* 삭제 버튼 + 화살표 */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteConfirm({ type: "single", id: capture.id });
+                      }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg
+                                 text-[var(--color-text-muted)] hover:text-[var(--color-error)]
+                                 hover:bg-[rgba(239,68,68,0.1)] transition-all opacity-0 group-hover:opacity-100"
+                      title="삭제"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    </button>
+                    <div className="text-[var(--color-text-muted)]">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M9 18l6-6-6-6" />
+                      </svg>
+                    </div>
                   </div>
                 </div>
               );
@@ -277,7 +354,64 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
         <CaptureDetailModal
           capture={selectedCapture}
           onClose={() => setSelectedCapture(null)}
+          onDelete={(id) => setDeleteConfirm({ type: "single", id })}
         />
+      )}
+
+      {/* 삭제 확인 다이얼로그 */}
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          onClick={() => !isDeleting && setDeleteConfirm(null)}
+        >
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-sm glass-card-static p-6 animate-slide-up text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-full bg-[rgba(239,68,68,0.1)] flex items-center justify-center mx-auto mb-4">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-error)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                <line x1="10" y1="11" x2="10" y2="17" />
+                <line x1="14" y1="11" x2="14" y2="17" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-[var(--color-text-primary)] mb-2">
+              {deleteConfirm.type === "all" ? "전체 삭제" : "캡처 삭제"}
+            </h3>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-6">
+              {deleteConfirm.type === "all"
+                ? "모든 캡처 이력과 이미지가 영구 삭제됩니다. 계속하시겠습니까?"
+                : "이 캡처 이력과 이미지가 영구 삭제됩니다. 계속하시겠습니까?"}
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                disabled={isDeleting}
+                className="btn btn-secondary px-6"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  if (deleteConfirm.type === "all") {
+                    handleDeleteAll();
+                  } else if (deleteConfirm.id) {
+                    handleDelete(deleteConfirm.id);
+                  }
+                }}
+                disabled={isDeleting}
+                className="px-6 py-2 rounded-xl text-sm font-semibold text-white
+                           bg-[var(--color-error)] hover:opacity-90 transition-all
+                           disabled:opacity-50 flex items-center gap-2"
+              >
+                {isDeleting && <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />}
+                {isDeleting ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -289,9 +423,11 @@ export default function CaptureList({ refreshTrigger }: CaptureListProps) {
 function CaptureDetailModal({
   capture,
   onClose,
+  onDelete,
 }: {
   capture: CaptureRecord;
   onClose: () => void;
+  onDelete: (id: string) => void;
 }) {
   const status = STATUS_LABELS[capture.status] || STATUS_LABELS.pending;
 
@@ -451,6 +587,21 @@ function CaptureDetailModal({
               </div>
             )}
           </div>
+        </div>
+
+        {/* 삭제 버튼 */}
+        <div className="border-t border-[var(--color-border)] mt-4 pt-4">
+          <button
+            onClick={() => onDelete(capture.id)}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
+                       text-[var(--color-error)] hover:bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.2)] transition-all"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            이 캡처 삭제
+          </button>
         </div>
       </div>
     </div>

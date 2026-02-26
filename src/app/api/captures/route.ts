@@ -297,3 +297,76 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+/** DELETE: 캡처 이력 삭제 (단일/다중/전체) */
+export async function DELETE(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { id, ids, all } = body as {
+      id?: string;       // 단일 삭제
+      ids?: string[];    // 다중 삭제
+      all?: boolean;     // 전체 삭제
+    };
+
+    const supabase = createServerClient();
+
+    // 삭제 대상 ID 목록 확정
+    let targetIds: string[] = [];
+
+    if (all) {
+      // 전체 삭제 — 모든 캡처 ID 조회
+      const { data } = await supabase
+        .from("vision_da_captures")
+        .select("id");
+      targetIds = (data ?? []).map((d: any) => d.id);
+    } else if (ids && ids.length > 0) {
+      targetIds = ids;
+    } else if (id) {
+      targetIds = [id];
+    } else {
+      return NextResponse.json({ error: "삭제할 대상(id, ids, 또는 all)을 지정하세요." }, { status: 400 });
+    }
+
+    if (targetIds.length === 0) {
+      return NextResponse.json({ deleted: 0 });
+    }
+
+    // 1) Storage 이미지 삭제
+    for (const captureId of targetIds) {
+      try {
+        const { data: files } = await supabase.storage
+          .from("capture-images")
+          .list(`captures/${captureId}`);
+
+        if (files && files.length > 0) {
+          const paths = files.map((f: any) => `captures/${captureId}/${f.name}`);
+          await supabase.storage
+            .from("capture-images")
+            .remove(paths);
+        }
+      } catch (storageErr) {
+        // Storage 삭제 실패해도 DB 삭제는 진행
+        console.warn(`[API] Storage 삭제 실패 (${captureId}):`, storageErr);
+      }
+    }
+
+    // 2) DB 레코드 삭제
+    const { error, count } = await supabase
+      .from("vision_da_captures")
+      .delete({ count: "exact" })
+      .in("id", targetIds);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    console.log(`[API] 캡처 삭제 완료: ${count}건`);
+    return NextResponse.json({ deleted: count });
+  } catch (err) {
+    console.error("[API] DELETE /captures error:", err);
+    return NextResponse.json(
+      { error: "서버 오류가 발생했습니다." },
+      { status: 500 }
+    );
+  }
+}

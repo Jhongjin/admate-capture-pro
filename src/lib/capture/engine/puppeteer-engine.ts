@@ -199,13 +199,64 @@ export class PuppeteerEngine implements IBrowserEngine {
     if (!this.browser) throw new Error("Browser not launched. Call launch() first.");
     const page = await this.browser.newPage();
 
-    // User-Agent 설정 (봇 감지 우회)
+    // 🔑 Cloudflare / 봇 감지 우회를 위한 스텔스 설정
+    // 1) User-Agent — 최신 Chrome (Headless 힌트 없음)
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     );
 
-    // CSP 우회 — 외부 이미지 인젝션 허용
+    // 2) navigator.webdriver 제거 + 브라우저 핑거프린트 위장
+    await page.evaluateOnNewDocument(`
+      // navigator.webdriver 제거
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+
+      // navigator.languages 설정
+      Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+
+      // navigator.plugins 위장 (빈 배열이면 봇으로 감지)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin' },
+        ],
+      });
+
+      // chrome 객체 위장
+      window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: { isInstalled: false },
+      };
+
+      // permissions.query 위장
+      const originalQuery = window.navigator.permissions.query;
+      window.navigator.permissions.query = (parameters) =>
+        parameters.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : originalQuery(parameters);
+
+      // WebGL 렌더러 위장
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) return 'Intel Inc.';
+        if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+        return getParameter.call(this, parameter);
+      };
+    `);
+
+    // 3) CSP 우회 — 외부 이미지 인젝션 허용
     await page.setBypassCSP(true);
+
+    // 4) Extra HTTP 헤더 설정 (Cloudflare 검사용)
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+    });
 
     return new PuppeteerPageHandle(page);
   }
