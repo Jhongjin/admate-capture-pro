@@ -13,7 +13,7 @@ type ChannelOption = {
 
 const CHANNELS: ChannelOption[] = [
   { value: "gdn", label: "GDN", description: "Google Display Network", icon: "🌐", enabled: true },
-  { value: "youtube", label: "YouTube", description: "YouTube 광고", icon: "▶️", enabled: false },
+  { value: "youtube", label: "YouTube", description: "YouTube 광고", icon: "▶️", enabled: true },
   { value: "meta", label: "Meta", description: "Facebook / Instagram", icon: "📘", enabled: false },
   { value: "naver", label: "Naver", description: "네이버 DA", icon: "🇳", enabled: false },
 ];
@@ -74,6 +74,23 @@ const GDN_AD_SIZES: AdSizeInfo[] = [
 /** 광고 사이즈 모드 */
 type AdSizeMode = "auto" | "manual";
 
+/** YouTube 광고 유형 */
+type YouTubeAdType = "preroll" | "display" | "overlay";
+
+interface YouTubeAdTypeOption {
+  value: YouTubeAdType;
+  label: string;
+  icon: string;
+  description: string;
+  sizeHint: string;
+}
+
+const YOUTUBE_AD_TYPES: YouTubeAdTypeOption[] = [
+  { value: "preroll", label: "인스트림", icon: "🎬", description: "영상 재생 전 프리롤 광고", sizeHint: "16:9 권장" },
+  { value: "display", label: "디스플레이", icon: "📺", description: "사이드바 컴패니언 배너", sizeHint: "300×250" },
+  { value: "overlay", label: "오버레이", icon: "🎭", description: "영상 하단 반투명 배너", sizeHint: "가로형" },
+];
+
 type InjectionMode = "single" | "all" | "custom";
 interface InjectionModeOption {
   value: InjectionMode;
@@ -99,6 +116,7 @@ interface CaptureFormData {
   slotCount: number;
   adSizeMode: AdSizeMode;
   targetAdSizes: string[];  // 수동 모드에서 선택한 사이즈 (예: ["300x250", "728x90"])
+  youtubeAdType: YouTubeAdType;  // YouTube 광고 유형
 }
 
 /** 캡처 결과 타입 */
@@ -144,6 +162,7 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
     slotCount: 2,
     adSizeMode: "auto",
     targetAdSizes: [],
+    youtubeAdType: "preroll",
   });
 
   // 이미지 업로드 관련 상태
@@ -324,6 +343,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
           // 📐 사이즈 선택 모드 & 타겟 사이즈
           adSizeMode: form.adSizeMode,
           targetAdSizes: form.adSizeMode === "manual" ? form.targetAdSizes : [],
+          // 🎬 YouTube 광고 유형
+          youtubeAdType: form.channel === "youtube" ? form.youtubeAdType : undefined,
         }),
       });
 
@@ -401,6 +422,46 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
             ))}
           </div>
         </div>
+
+        {/* ===== YouTube 광고 유형 선택 (YouTube 채널 전용) ===== */}
+        {form.channel === "youtube" && (
+          <div className="mb-5 animate-fade-in">
+            <label className="form-label">▶️ YouTube 광고 유형</label>
+            <div className="grid grid-cols-3 gap-2">
+              {YOUTUBE_AD_TYPES.map((yt) => (
+                <button
+                  key={yt.value}
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, youtubeAdType: yt.value }))}
+                  className="flex flex-col items-center gap-1.5 p-3 rounded-xl border text-center transition-all duration-200"
+                  style={{
+                    borderColor: form.youtubeAdType === yt.value ? "var(--color-accent)" : "var(--color-border)",
+                    backgroundColor: form.youtubeAdType === yt.value ? "var(--color-accent-subtle)" : "transparent",
+                  }}
+                >
+                  <span className="text-lg">{yt.icon}</span>
+                  <span className="text-xs font-semibold"
+                    style={{ color: form.youtubeAdType === yt.value ? "var(--color-accent)" : "var(--color-text-primary)" }}>
+                    {yt.label}
+                  </span>
+                  <span className="text-[10px] leading-tight"
+                    style={{ color: "var(--color-text-muted)" }}>
+                    {yt.description}
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full mt-0.5"
+                    style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)" }}>
+                    {yt.sizeHint}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="form-helper mt-1.5">
+              💡 {form.youtubeAdType === "preroll" && "영상 시작 전 광고 이미지가 플레이어에 표시됩니다. 16:9 비율 이미지를 권장합니다."}
+              {form.youtubeAdType === "display" && "영상 우측 사이드바에 300×250 컴패니언 배너로 표시됩니다."}
+              {form.youtubeAdType === "overlay" && "영상 하단에 가로형 반투명 배너로 표시됩니다."}
+            </p>
+          </div>
+        )}
 
         {/* ===== 게재면 URL (멀티 선택) ===== */}
         <div className="mb-5">

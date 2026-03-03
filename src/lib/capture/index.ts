@@ -10,6 +10,7 @@
 import type { BaseChannel } from "./channels/base-channel";
 import type { IBrowserEngine } from "./engine/browser-engine";
 import { GdnCapture } from "./channels/gdn-capture";
+import { YouTubeCapture } from "./channels/youtube-capture";
 
 export type ChannelType = "gdn" | "youtube" | "meta" | "naver";
 
@@ -21,9 +22,9 @@ export function createChannel(type: ChannelType, engine?: IBrowserEngine): BaseC
   switch (type) {
     case "gdn":
       return new GdnCapture(engine);
+    case "youtube":
+      return new YouTubeCapture(engine);
     // 향후 확장
-    // case "youtube":
-    //   return new YouTubeCapture(engine);
     // case "meta":
     //   return new MetaCapture(engine);
     // case "naver":

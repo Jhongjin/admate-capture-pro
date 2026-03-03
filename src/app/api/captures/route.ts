@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       creativeDimensions,        // 📐 배너 사이즈 {width, height}
       adSizeMode = "auto",       // 📐 "auto" | "manual"
       targetAdSizes = [],        // 📐 수동 선택한 사이즈 배열
+      youtubeAdType,             // 🎬 YouTube 광고 유형
     } = body as {
       channel: ChannelType;
       publisherUrl?: string;
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
       creativeDimensions?: { width: number; height: number };
       adSizeMode?: "auto" | "manual";
       targetAdSizes?: string[];
+      youtubeAdType?: "preroll" | "display" | "overlay";
     };
 
     // URL 배열 통합
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
           click_url: clickUrl ?? null,
           capture_landing: captureLanding ?? false,
           status: "pending",
-          metadata: { injectionMode, slotCount, creativeDimensions, adSizeMode, targetAdSizes },
+          metadata: { injectionMode, slotCount, creativeDimensions, adSizeMode, targetAdSizes, youtubeAdType },
         })
         .select()
         .single();
@@ -182,6 +184,7 @@ async function executeBatchCaptures(captureIds: string[]): Promise<void> {
             creativeDimensions: captureMetadata.creativeDimensions ?? undefined,
             adSizeMode: captureMetadata.adSizeMode ?? "auto",
             targetAdSizes: captureMetadata.targetAdSizes ?? [],
+            youtubeAdType: captureMetadata.youtubeAdType ?? "preroll",
           },
         });
 

@@ -1,0 +1,606 @@
+/**
+ * YouTube Capture v1 — YouTube 광고 캡처 모듈
+ *
+ * 지원 광고 유형:
+ * 1. 인스트림 (프리롤) — 영상 플레이어에 프리롤 광고 시뮬레이션
+ * 2. 디스플레이 — 사이드바 컴패니언 배너 영역에 인젝션
+ * 3. 오버레이 — 영상 플레이어 하단 반투명 오버레이 배너
+ */
+
+import type { IPageHandle } from "../engine/browser-engine";
+import { BaseChannel, type CaptureRequest } from "./base-channel";
+
+/** YouTube 광고 유형 */
+export type YouTubeAdType = "preroll" | "display" | "overlay";
+
+/** YouTube 캡처 진단 정보 */
+export interface YouTubeDiagnostics {
+  adType: YouTubeAdType;
+  playerFound: boolean;
+  playerSize: { width: number; height: number };
+  sidebarFound: boolean;
+  injectionSuccess: boolean;
+  creativeDownloaded: boolean;
+  creativeBase64Size: number;
+}
+
+/**
+ * 이미지 URL → base64 data URL 변환 (서버 측)
+ */
+async function imageUrlToDataUrl(imageUrl: string): Promise<{ dataUrl: string; sizeKB: number; ok: boolean }> {
+  try {
+    console.log(`[YouTube] 소재 이미지 다운로드 시작: ${imageUrl}`);
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const contentType = response.headers.get("content-type") || "image/png";
+    const arrayBuffer = await response.arrayBuffer();
+    const sizeKB = Math.round(arrayBuffer.byteLength / 1024);
+    const base64 = Buffer.from(arrayBuffer).toString("base64");
+    const dataUrl = `data:${contentType};base64,${base64}`;
+    console.log(`[YouTube] 소재 이미지 변환 완료 (${contentType}, ${sizeKB}KB)`);
+    return { dataUrl, sizeKB, ok: true };
+  } catch (err) {
+    console.error(`[YouTube] 소재 이미지 다운로드 실패:`, err);
+    return { dataUrl: imageUrl, sizeKB: 0, ok: false };
+  }
+}
+
+export class YouTubeCapture extends BaseChannel {
+  private diagnostics: YouTubeDiagnostics | null = null;
+
+  getDiagnostics(): YouTubeDiagnostics | null {
+    return this.diagnostics;
+  }
+
+  async captureAdPlacement(page: IPageHandle, request: CaptureRequest): Promise<Buffer> {
+    const adType = (request.options?.youtubeAdType as YouTubeAdType) || "preroll";
+    console.log(`[YouTube] ===== 캡처 시작 =====`);
+    console.log(`[YouTube] 영상 URL: ${request.publisherUrl}`);
+    console.log(`[YouTube] 광고 유형: ${adType}`);
+    console.log(`[YouTube] 소재: ${request.creativeUrl}`);
+
+    // 초기화
+    this.diagnostics = {
+      adType,
+      playerFound: false,
+      playerSize: { width: 0, height: 0 },
+      sidebarFound: false,
+      injectionSuccess: false,
+      creativeDownloaded: false,
+      creativeBase64Size: 0,
+    };
+
+    // 1) 소재 이미지 → base64 data URL 변환
+    const { dataUrl: creativeDataUrl, sizeKB, ok } = await imageUrlToDataUrl(request.creativeUrl);
+    this.diagnostics.creativeDownloaded = ok;
+    this.diagnostics.creativeBase64Size = sizeKB;
+
+    // 2) YouTube 페이지 로드
+    //    쿠키 동의 팝업 방지를 위해 consent 파라미터 추가
+    let targetUrl = request.publisherUrl;
+    if (targetUrl.includes("youtube.com") && !targetUrl.includes("consent")) {
+      const separator = targetUrl.includes("?") ? "&" : "?";
+      targetUrl += `${separator}autoplay=0`;
+    }
+
+    await page.goto(targetUrl, {
+      waitUntil: "networkidle2",
+      timeout: 45000,
+    });
+
+    // 2.5) YouTube 쿠키 동의 팝업 제거
+    await this.dismissYouTubeConsent(page);
+
+    // 3) YouTube 페이지 안정화 대기
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // 4) 영상 일시정지 (깨끗한 스크린샷을 위해)
+    await this.pauseVideo(page);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 5) 플레이어 정보 수집
+    const playerInfo = await page.evaluate<{ found: boolean; width: number; height: number; sidebarFound: boolean }>(`
+      (() => {
+        const player = document.querySelector('#movie_player, #player, ytd-player, .html5-video-player');
+        const sidebar = document.querySelector('#secondary, #related, ytd-watch-next-secondary-results-renderer');
+        
+        if (!player) return { found: false, width: 0, height: 0, sidebarFound: !!sidebar };
+        
+        const rect = player.getBoundingClientRect();
+        return {
+          found: true,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          sidebarFound: !!sidebar
+        };
+      })()
+    `);
+
+    this.diagnostics.playerFound = playerInfo.found;
+    this.diagnostics.playerSize = { width: playerInfo.width, height: playerInfo.height };
+    this.diagnostics.sidebarFound = playerInfo.sidebarFound;
+    console.log(`[YouTube] 플레이어: ${playerInfo.found ? `✅ ${playerInfo.width}x${playerInfo.height}` : "❌ 미감지"}`);
+    console.log(`[YouTube] 사이드바: ${playerInfo.sidebarFound ? "✅" : "❌"}`);
+
+    // 6) 광고 유형별 인젝션
+    let injectionSuccess = false;
+
+    switch (adType) {
+      case "preroll":
+        injectionSuccess = await this.injectPrerollAd(page, creativeDataUrl, playerInfo);
+        break;
+      case "display":
+        injectionSuccess = await this.injectDisplayAd(page, creativeDataUrl);
+        break;
+      case "overlay":
+        injectionSuccess = await this.injectOverlayAd(page, creativeDataUrl, playerInfo);
+        break;
+    }
+
+    this.diagnostics.injectionSuccess = injectionSuccess;
+
+    if (!injectionSuccess) {
+      console.warn(`[YouTube] ⚠️ 기본 인젝션 실패 — 폴백: 프리롤 강제 오버레이`);
+      await this.injectPrerollAd(page, creativeDataUrl, playerInfo);
+    }
+
+    // 7) 렌더링 안정화
+    await new Promise((r) => setTimeout(r, 2000));
+
+    // 8) 스크롤 최상단 복원
+    await page.evaluate<void>(`
+      (() => {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // 9) 전체 페이지 스크린샷
+    const screenshot = await page.screenshot({
+      fullPage: false, // YouTube는 뷰포트 캡처가 더 적합
+      type: "png",
+    });
+
+    console.log(`[YouTube] ===== 캡처 완료 (${adType}) =====`);
+    return screenshot;
+  }
+
+  /**
+   * 🎬 인스트림 (프리롤) 광고 시뮬레이션
+   * 영상 플레이어 위에 프리롤 광고 UI를 오버레이
+   */
+  private async injectPrerollAd(
+    page: IPageHandle,
+    imgDataUrl: string,
+    playerInfo: { found: boolean; width: number; height: number }
+  ): Promise<boolean> {
+    console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작`);
+
+    const result = await page.evaluate<boolean>(`
+      (() => {
+        const imgUrl = ${JSON.stringify(imgDataUrl)};
+
+        // 플레이어 찾기
+        const player = document.querySelector('#movie_player, #player-container-outer, ytd-player, .html5-video-player');
+        if (!player) {
+          console.warn('[YouTube Inject] 플레이어를 찾을 수 없습니다');
+          return false;
+        }
+
+        const rect = player.getBoundingClientRect();
+        const pw = Math.round(rect.width) || 854;
+        const ph = Math.round(rect.height) || 480;
+
+        // 기존 비디오 숨기기
+        const video = player.querySelector('video');
+        if (video) {
+          video.style.opacity = '0';
+          video.pause();
+        }
+
+        // 프리롤 오버레이 컨테이너
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-injected', 'admate-youtube-preroll');
+        overlay.style.cssText = [
+          'position: absolute !important',
+          'top: 0 !important',
+          'left: 0 !important',
+          'width: ' + pw + 'px !important',
+          'height: ' + ph + 'px !important',
+          'z-index: 99999 !important',
+          'background: #000 !important',
+          'display: flex !important',
+          'align-items: center !important',
+          'justify-content: center !important',
+          'overflow: hidden !important',
+        ].join(';');
+
+        // 광고 소재 이미지
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.setAttribute('data-injected', 'admate');
+        img.style.cssText = [
+          'max-width: 100% !important',
+          'max-height: 100% !important',
+          'object-fit: contain !important',
+          'display: block !important',
+        ].join(';');
+        overlay.appendChild(img);
+
+        // 📺 "광고" 라벨 (좌상단)
+        const adLabel = document.createElement('div');
+        adLabel.style.cssText = [
+          'position: absolute !important',
+          'top: 12px !important',
+          'left: 12px !important',
+          'background: rgba(0,0,0,0.7) !important',
+          'color: #fff !important',
+          'font-size: 12px !important',
+          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
+          'padding: 4px 10px !important',
+          'border-radius: 3px !important',
+          'font-weight: 500 !important',
+          'letter-spacing: 0.3px !important',
+          'z-index: 100000 !important',
+        ].join(';');
+        adLabel.textContent = '광고';
+        overlay.appendChild(adLabel);
+
+        // ⏭ "건너뛰기" 버튼 (우하단) — YouTube 스타일
+        const skipBtn = document.createElement('div');
+        skipBtn.style.cssText = [
+          'position: absolute !important',
+          'bottom: 80px !important',
+          'right: 0 !important',
+          'background: rgba(0,0,0,0.75) !important',
+          'color: #fff !important',
+          'font-size: 14px !important',
+          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
+          'padding: 10px 16px 10px 12px !important',
+          'border-radius: 2px 0 0 2px !important',
+          'cursor: pointer !important',
+          'display: flex !important',
+          'align-items: center !important',
+          'gap: 8px !important',
+          'z-index: 100000 !important',
+          'border-left: 3px solid #fff !important',
+        ].join(';');
+        skipBtn.innerHTML = '광고 건너뛰기 <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
+        overlay.appendChild(skipBtn);
+
+        // ⏱ 타이머 바 (하단) — 노란색 프로그레스 바
+        const timerBar = document.createElement('div');
+        timerBar.style.cssText = [
+          'position: absolute !important',
+          'bottom: 0 !important',
+          'left: 0 !important',
+          'width: 35% !important',
+          'height: 4px !important',
+          'background: #f2bc42 !important',
+          'z-index: 100001 !important',
+          'border-radius: 0 2px 0 0 !important',
+        ].join(';');
+        overlay.appendChild(timerBar);
+
+        // 전체 타이머 바 배경 (회색)
+        const timerBg = document.createElement('div');
+        timerBg.style.cssText = [
+          'position: absolute !important',
+          'bottom: 0 !important',
+          'left: 0 !important',
+          'width: 100% !important',
+          'height: 4px !important',
+          'background: rgba(255,255,255,0.2) !important',
+          'z-index: 100000 !important',
+        ].join(';');
+        overlay.appendChild(timerBg);
+
+        // 🕐 광고 카운트다운 (좌하단)
+        const countdown = document.createElement('div');
+        countdown.style.cssText = [
+          'position: absolute !important',
+          'bottom: 50px !important',
+          'left: 12px !important',
+          'background: rgba(0,0,0,0.7) !important',
+          'color: #ddd !important',
+          'font-size: 12px !important',
+          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
+          'padding: 5px 10px !important',
+          'border-radius: 3px !important',
+          'z-index: 100000 !important',
+        ].join(';');
+        countdown.textContent = '0:05 / 0:15';
+        overlay.appendChild(countdown);
+
+        // 📍 "광고주 사이트 방문" 버튼 (하단)
+        const visitBtn = document.createElement('div');
+        visitBtn.style.cssText = [
+          'position: absolute !important',
+          'bottom: 44px !important',
+          'right: 0 !important',
+          'background: rgba(255,203,0,0.95) !important',
+          'color: #000 !important',
+          'font-size: 13px !important',
+          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
+          'padding: 8px 16px 8px 12px !important',
+          'font-weight: 600 !important',
+          'cursor: pointer !important',
+          'z-index: 100000 !important',
+          'border-radius: 2px 0 0 2px !important',
+          'display: flex !important',
+          'align-items: center !important',
+          'gap: 6px !important',
+        ].join(';');
+        visitBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg> 광고주 사이트 방문';
+        overlay.appendChild(visitBtn);
+
+        // 플레이어에 relative 포지션 보장
+        const playerEl = player;
+        const computedStyle = window.getComputedStyle(playerEl);
+        if (computedStyle.position === 'static') {
+          playerEl.style.position = 'relative';
+        }
+
+        playerEl.appendChild(overlay);
+        console.log('[YouTube Inject] ✅ 프리롤 광고 인젝션 성공 (' + pw + 'x' + ph + ')');
+        return true;
+      })()
+    `);
+
+    console.log(`[YouTube] 프리롤 인젝션: ${result ? "✅ 성공" : "❌ 실패"}`);
+    return result;
+  }
+
+  /**
+   * 📺 디스플레이 (사이드바 컴패니언) 광고 인젝션
+   * YouTube 영상 페이지 우측 사이드바 상단에 배너 삽입
+   */
+  private async injectDisplayAd(page: IPageHandle, imgDataUrl: string): Promise<boolean> {
+    console.log(`[YouTube] 📺 디스플레이 광고 인젝션 시작`);
+
+    const result = await page.evaluate<boolean>(`
+      (() => {
+        const imgUrl = ${JSON.stringify(imgDataUrl)};
+
+        // 사이드바 영역 찾기
+        const sidebar = document.querySelector(
+          '#secondary-inner, #secondary, ytd-watch-next-secondary-results-renderer, #related'
+        );
+
+        if (!sidebar) {
+          console.warn('[YouTube Inject] 사이드바를 찾을 수 없습니다');
+          return false;
+        }
+
+        // 컴패니언 배너 컨테이너
+        const container = document.createElement('div');
+        container.setAttribute('data-injected', 'admate-youtube-display');
+        container.style.cssText = [
+          'width: 300px !important',
+          'margin: 0 auto 16px auto !important',
+          'border-radius: 12px !important',
+          'overflow: hidden !important',
+          'box-shadow: 0 1px 6px rgba(0,0,0,0.1) !important',
+          'border: 1px solid rgba(0,0,0,0.08) !important',
+          'background: #fff !important',
+        ].join(';');
+
+        // "광고" 라벨 헤더
+        const header = document.createElement('div');
+        header.style.cssText = [
+          'display: flex !important',
+          'align-items: center !important',
+          'justify-content: space-between !important',
+          'padding: 6px 10px !important',
+          'background: #f9f9f9 !important',
+          'border-bottom: 1px solid rgba(0,0,0,0.06) !important',
+        ].join(';');
+        header.innerHTML = '<span style="font-size:11px;color:#606060;font-family:Roboto,Arial,sans-serif;font-weight:500;">스폰서 광고</span><svg width="14" height="14" viewBox="0 0 24 24" fill="#909090"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>';
+        container.appendChild(header);
+
+        // 배너 이미지
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.setAttribute('data-injected', 'admate');
+        img.style.cssText = [
+          'display: block !important',
+          'width: 300px !important',
+          'height: 250px !important',
+          'object-fit: cover !important',
+        ].join(';');
+        container.appendChild(img);
+
+        // CTA 푸터
+        const footer = document.createElement('div');
+        footer.style.cssText = [
+          'padding: 8px 10px !important',
+          'display: flex !important',
+          'align-items: center !important',
+          'gap: 8px !important',
+          'background: #f9f9f9 !important',
+          'border-top: 1px solid rgba(0,0,0,0.06) !important',
+        ].join(';');
+        footer.innerHTML = '<div style="width:28px;height:28px;border-radius:50%;background:#065fd4;display:flex;align-items:center;justify-content:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M19 19H5V5h7V3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg></div><div><div style="font-size:12px;font-weight:500;color:#030303;font-family:Roboto,Arial,sans-serif;">광고주 사이트 방문</div><div style="font-size:11px;color:#606060;font-family:Roboto,Arial,sans-serif;">ad · Sponsored</div></div>';
+        container.appendChild(footer);
+
+        // 사이드바 최상단에 삽입
+        sidebar.insertBefore(container, sidebar.firstChild);
+        console.log('[YouTube Inject] ✅ 디스플레이 광고 인젝션 성공');
+        return true;
+      })()
+    `);
+
+    console.log(`[YouTube] 디스플레이 인젝션: ${result ? "✅ 성공" : "❌ 실패"}`);
+    return result;
+  }
+
+  /**
+   * 🎭 오버레이 광고 인젝션
+   * 영상 플레이어 하단에 반투명 오버레이 배너 삽입
+   */
+  private async injectOverlayAd(
+    page: IPageHandle,
+    imgDataUrl: string,
+    playerInfo: { found: boolean; width: number; height: number }
+  ): Promise<boolean> {
+    console.log(`[YouTube] 🎭 오버레이 광고 인젝션 시작`);
+
+    const result = await page.evaluate<boolean>(`
+      (() => {
+        const imgUrl = ${JSON.stringify(imgDataUrl)};
+
+        const player = document.querySelector('#movie_player, #player-container-outer, ytd-player, .html5-video-player');
+        if (!player) {
+          console.warn('[YouTube Inject] 플레이어를 찾을 수 없습니다');
+          return false;
+        }
+
+        const rect = player.getBoundingClientRect();
+        const pw = Math.round(rect.width) || 854;
+
+        // 오버레이 배너 크기 (플레이어 너비의 70%, 높이 70px)
+        const bannerW = Math.round(pw * 0.7);
+        const bannerH = 70;
+
+        // 오버레이 컨테이너
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-injected', 'admate-youtube-overlay');
+        overlay.style.cssText = [
+          'position: absolute !important',
+          'bottom: 60px !important',
+          'left: 50% !important',
+          'transform: translateX(-50%) !important',
+          'width: ' + bannerW + 'px !important',
+          'height: ' + bannerH + 'px !important',
+          'z-index: 99999 !important',
+          'background: rgba(0,0,0,0.85) !important',
+          'border-radius: 4px !important',
+          'overflow: hidden !important',
+          'display: flex !important',
+          'align-items: stretch !important',
+          'box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important',
+        ].join(';');
+
+        // 광고 이미지
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.setAttribute('data-injected', 'admate');
+        img.style.cssText = [
+          'height: 100% !important',
+          'width: auto !important',
+          'object-fit: cover !important',
+          'flex-shrink: 0 !important',
+        ].join(';');
+        overlay.appendChild(img);
+
+        // 텍스트 영역 (오버레이 우측)
+        const textArea = document.createElement('div');
+        textArea.style.cssText = [
+          'flex: 1 !important',
+          'display: flex !important',
+          'flex-direction: column !important',
+          'justify-content: center !important',
+          'padding: 8px 12px !important',
+          'min-width: 0 !important',
+        ].join(';');
+        textArea.innerHTML = '<div style="font-size:13px;font-weight:500;color:#fff;font-family:Roboto,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">광고주 배너</div><div style="font-size:11px;color:#aaa;font-family:Roboto,Arial,sans-serif;margin-top:2px;">ad · 자세히 보기</div>';
+        overlay.appendChild(textArea);
+
+        // 닫기 버튼
+        const closeBtn = document.createElement('div');
+        closeBtn.style.cssText = [
+          'position: absolute !important',
+          'top: -8px !important',
+          'right: -8px !important',
+          'width: 20px !important',
+          'height: 20px !important',
+          'background: rgba(0,0,0,0.8) !important',
+          'border-radius: 50% !important',
+          'display: flex !important',
+          'align-items: center !important',
+          'justify-content: center !important',
+          'cursor: pointer !important',
+          'z-index: 100000 !important',
+          'border: 1px solid rgba(255,255,255,0.3) !important',
+        ].join(';');
+        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+        overlay.appendChild(closeBtn);
+
+        // 플레이어에 relative 포지션 보장
+        const computedStyle = window.getComputedStyle(player);
+        if (computedStyle.position === 'static') {
+          player.style.position = 'relative';
+        }
+
+        player.appendChild(overlay);
+        console.log('[YouTube Inject] ✅ 오버레이 광고 인젝션 성공 (' + bannerW + 'x' + bannerH + ')');
+        return true;
+      })()
+    `);
+
+    console.log(`[YouTube] 오버레이 인젝션: ${result ? "✅ 성공" : "❌ 실패"}`);
+    return result;
+  }
+
+  /** YouTube 동영상 일시정지 */
+  private async pauseVideo(page: IPageHandle): Promise<void> {
+    await page.evaluate<void>(`
+      (() => {
+        // 방법 1: video 요소 직접 제어
+        const video = document.querySelector('video');
+        if (video) {
+          video.pause();
+          // 첫 프레임 표시를 위해 currentTime 설정
+          if (video.currentTime === 0) video.currentTime = 2;
+        }
+
+        // 방법 2: YouTube Player API
+        const player = document.querySelector('#movie_player');
+        if (player && typeof player.pauseVideo === 'function') {
+          player.pauseVideo();
+        }
+
+        // 방법 3: 키보드 이벤트 (스페이스바)
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK' }));
+      })()
+    `);
+    console.log(`[YouTube] ⏸️ 영상 일시정지`);
+  }
+
+  /** YouTube 쿠키 동의 팝업 제거 */
+  private async dismissYouTubeConsent(page: IPageHandle): Promise<void> {
+    const dismissed = await page.evaluate<boolean>(`
+      (() => {
+        // YouTube 동의 다이얼로그 제거
+        const consentBtn = document.querySelector(
+          'button[aria-label*="Accept"], button[aria-label*="동의"], ' +
+          'tp-yt-paper-button.style-scope.ytd-consent-bump-v2-lightbox, ' +
+          'button.yt-spec-button-shape-next--filled, ' +
+          '[aria-label="Accept the use of cookies and other data for the purposes described"]'
+        );
+        if (consentBtn) {
+          consentBtn.click();
+          return true;
+        }
+
+        // 동의 오버레이 직접 제거
+        const consentOverlays = document.querySelectorAll(
+          'ytd-consent-bump-v2-lightbox, tp-yt-iron-overlay-backdrop, #consent-bump'
+        );
+        consentOverlays.forEach(el => el.remove());
+
+        return consentOverlays.length > 0;
+      })()
+    `);
+
+    if (dismissed) {
+      console.log(`[YouTube] 🍪 쿠키 동의 팝업 제거 완료`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
