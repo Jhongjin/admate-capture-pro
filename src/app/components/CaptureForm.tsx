@@ -71,6 +71,9 @@ const GDN_AD_SIZES: AdSizeInfo[] = [
 ];
 
 /** 인젝션 모드 */
+/** 광고 사이즈 모드 */
+type AdSizeMode = "auto" | "manual";
+
 type InjectionMode = "single" | "all" | "custom";
 interface InjectionModeOption {
   value: InjectionMode;
@@ -94,6 +97,8 @@ interface CaptureFormData {
   captureLanding: boolean;
   injectionMode: InjectionMode;
   slotCount: number;
+  adSizeMode: AdSizeMode;
+  targetAdSizes: string[];  // 수동 모드에서 선택한 사이즈 (예: ["300x250", "728x90"])
 }
 
 /** 캡처 결과 타입 */
@@ -137,6 +142,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
     captureLanding: false,
     injectionMode: "single",
     slotCount: 2,
+    adSizeMode: "auto",
+    targetAdSizes: [],
   });
 
   // 이미지 업로드 관련 상태
@@ -314,6 +321,9 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
           creativeDimensions: uploadedFile?.width && uploadedFile?.height
             ? { width: uploadedFile.width, height: uploadedFile.height }
             : undefined,
+          // 📐 사이즈 선택 모드 & 타겟 사이즈
+          adSizeMode: form.adSizeMode,
+          targetAdSizes: form.adSizeMode === "manual" ? form.targetAdSizes : [],
         }),
       });
 
@@ -728,69 +738,176 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
             </div>
           )}
 
-          {/* 사이즈 가이드 토글 */}
-          <button
-            type="button"
-            onClick={() => setShowSizeGuide(!showSizeGuide)}
-            className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border transition-all duration-200"
-            style={{
-              color: "var(--color-text-muted)",
-              borderColor: "var(--color-border)",
-            }}
-          >
-            📐 GDN 광고 사이즈 가이드
-            <span className="text-[10px]">{showSizeGuide ? "▲" : "▼"}</span>
-          </button>
+          {/* ===== 📐 광고 사이즈 선택 ===== */}
+          <div className="mt-4 rounded-xl border p-4"
+            style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-primary)" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">📐</span>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-text-primary)" }}>광고 사이즈</p>
+                {form.adSizeMode === "manual" && form.targetAdSizes.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                    style={{ backgroundColor: "var(--color-accent)", color: "white" }}>
+                    {form.targetAdSizes.length}개 선택
+                  </span>
+                )}
+              </div>
+              {/* 자동/수동 모드 전환 */}
+              <div className="flex gap-1 rounded-lg p-0.5 border"
+                style={{ backgroundColor: "var(--color-bg-secondary)", borderColor: "var(--color-border)" }}>
+                <button
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, adSizeMode: "auto" as AdSizeMode, targetAdSizes: [] }))}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium transition-all"
+                  style={{
+                    backgroundColor: form.adSizeMode === "auto" ? "var(--color-accent)" : "transparent",
+                    color: form.adSizeMode === "auto" ? "white" : "var(--color-text-muted)",
+                  }}
+                >
+                  ✨ 자동 매칭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, adSizeMode: "manual" as AdSizeMode }))}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-medium transition-all"
+                  style={{
+                    backgroundColor: form.adSizeMode === "manual" ? "var(--color-accent)" : "transparent",
+                    color: form.adSizeMode === "manual" ? "white" : "var(--color-text-muted)",
+                  }}
+                >
+                  🎯 직접 선택
+                </button>
+              </div>
+            </div>
 
-          {/* 사이즈 가이드 패널 */}
-          {showSizeGuide && (
-            <div className="mt-2 rounded-xl border p-4 animate-fade-in"
-              style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-bg-primary)" }}>
-              <div className="flex items-start gap-2 mb-3 p-2.5 rounded-lg"
+            {form.adSizeMode === "auto" ? (
+              /* 자동 매칭 모드 설명 */
+              <div className="flex items-start gap-2 p-2.5 rounded-lg animate-fade-in"
                 style={{ backgroundColor: "var(--color-accent-subtle)" }}>
                 <span className="text-sm mt-0.5">✨</span>
                 <div>
                   <p className="text-xs font-semibold" style={{ color: "var(--color-accent)" }}>자동 사이즈 매핑</p>
                   <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
-                    어떤 크기의 이미지를 업로드하더라도, 게재면의 광고 슬롯 크기에 맞게 <strong>자동으로 리사이즈</strong>됩니다.
-                    단, 원본과 슬롯의 비율이 크게 다르면 이미지 일부가 잘릴 수 있어요.
+                    {uploadedFile?.width && uploadedFile?.height
+                      ? <>업로드한 <strong>{uploadedFile.width}×{uploadedFile.height}</strong> 이미지와 가장 유사한 슬롯을 자동으로 우선 선택합니다.</>
+                      : <>소재 이미지를 업로드하면, 해당 크기와 가장 유사한 광고 슬롯에 우선 배치됩니다.</>}
                   </p>
                 </div>
               </div>
-              <div className="space-y-1.5">
-                {GDN_AD_SIZES.map((ad) => (
-                  <div key={ad.size} className="flex items-center gap-3 p-2 rounded-lg transition-colors"
-                    style={{ backgroundColor: "transparent" }}>
-                    <div className="shrink-0 w-10 h-10 flex items-center justify-center">
-                      <div className="rounded-sm"
-                        style={{
-                          width: Math.min(40, ad.width / (Math.max(ad.width, ad.height) / 40)),
-                          height: Math.min(40, ad.height / (Math.max(ad.width, ad.height) / 40)),
-                          border: "1px solid var(--color-accent)",
-                          backgroundColor: "var(--color-accent-subtle)",
+            ) : (
+              /* 수동 선택 모드 — 멀티 체크박스 */
+              <div className="animate-fade-in">
+                <p className="text-[11px] mb-2.5" style={{ color: "var(--color-text-muted)" }}>
+                  원하는 광고 사이즈를 선택해주세요. 선택한 사이즈의 슬롯만 타겟팅합니다.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {GDN_AD_SIZES.map((ad) => {
+                    const sizeKey = `${ad.width}x${ad.height}`;
+                    const isSelected = form.targetAdSizes.includes(sizeKey);
+                    // 📐 추천 배지: 업로드한 이미지 사이즈와 비교
+                    const isRecommended = uploadedFile?.width && uploadedFile?.height
+                      ? (Math.abs(uploadedFile.width - ad.width) <= 50 && Math.abs(uploadedFile.height - ad.height) <= 50)
+                      : false;
+                    const isExactMatch = uploadedFile?.width === ad.width && uploadedFile?.height === ad.height;
+
+                    return (
+                      <button
+                        key={sizeKey}
+                        type="button"
+                        onClick={() => {
+                          setForm((prev) => ({
+                            ...prev,
+                            targetAdSizes: isSelected
+                              ? prev.targetAdSizes.filter((s) => s !== sizeKey)
+                              : [...prev.targetAdSizes, sizeKey],
+                          }));
                         }}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold" style={{ color: "var(--color-text-primary)" }}>{ad.size}</span>
-                        <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>{ad.name}</span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium border"
+                        className="flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition-all duration-200"
+                        style={{
+                          borderColor: isSelected ? "var(--color-accent)" : isRecommended ? "rgba(251,191,36,0.5)" : "var(--color-border)",
+                          backgroundColor: isSelected ? "var(--color-accent-subtle)" : "transparent",
+                        }}
+                      >
+                        {/* 체크박스 */}
+                        <div className="shrink-0 w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all"
                           style={{
-                            backgroundColor: ad.popularity === "높음" ? "rgba(34,197,94,0.1)" : "var(--color-bg-tertiary)",
-                            color: ad.popularity === "높음" ? "var(--color-success)" : "var(--color-text-muted)",
-                            borderColor: ad.popularity === "높음" ? "rgba(34,197,94,0.2)" : "var(--color-border)",
+                            width: 18, height: 18,
+                            borderColor: isSelected ? "var(--color-accent)" : "var(--color-border)",
+                            backgroundColor: isSelected ? "var(--color-accent)" : "transparent",
                           }}>
-                          {ad.popularity === "높음" ? "🔥 인기" : ad.popularity}
-                        </span>
-                      </div>
-                      <p className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>{ad.usage}</p>
-                    </div>
+                          {isSelected && (
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </div>
+                        {/* 사이즈 비주얼 */}
+                        <div className="shrink-0 w-8 h-8 flex items-center justify-center">
+                          <div className="rounded-sm"
+                            style={{
+                              width: Math.min(32, ad.width / (Math.max(ad.width, ad.height) / 32)),
+                              height: Math.min(32, ad.height / (Math.max(ad.width, ad.height) / 32)),
+                              border: `1.5px solid ${isSelected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                              backgroundColor: isSelected ? "var(--color-accent-subtle)" : "var(--color-bg-tertiary)",
+                            }}
+                          />
+                        </div>
+                        {/* 정보 */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs font-bold" style={{ color: isSelected ? "var(--color-accent)" : "var(--color-text-primary)" }}>
+                              {ad.size}
+                            </span>
+                            {isExactMatch && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                                style={{ backgroundColor: "rgba(34,197,94,0.15)", color: "var(--color-success)", border: "1px solid rgba(34,197,94,0.3)" }}>
+                                ✓ 일치
+                              </span>
+                            )}
+                            {isRecommended && !isExactMatch && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                                style={{ backgroundColor: "rgba(251,191,36,0.15)", color: "#d97706", border: "1px solid rgba(251,191,36,0.3)" }}>
+                                ⭐ 추천
+                              </span>
+                            )}
+                            {ad.popularity === "높음" && (
+                              <span className="text-[9px] px-1 py-0.5 rounded-full"
+                                style={{ backgroundColor: "var(--color-bg-tertiary)", color: "var(--color-text-muted)" }}>
+                                🔥
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] leading-tight" style={{ color: "var(--color-text-muted)" }}>
+                            {ad.name} · {ad.usage}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* 선택 요약 */}
+                {form.targetAdSizes.length > 0 && (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>선택됨:</span>
+                    {form.targetAdSizes.map((size) => (
+                      <span key={size} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                        style={{ borderColor: "var(--color-accent)", backgroundColor: "var(--color-accent-subtle)", color: "var(--color-accent)" }}>
+                        {size}
+                        <button type="button" onClick={() => setForm((prev) => ({
+                          ...prev, targetAdSizes: prev.targetAdSizes.filter((s) => s !== size)
+                        }))} className="hover:opacity-70" aria-label="제거">✕</button>
+                      </span>
+                    ))}
                   </div>
-                ))}
+                )}
+                {form.targetAdSizes.length === 0 && (
+                  <p className="mt-2 text-[10px] text-center py-1" style={{ color: "var(--color-warning, #d97706)" }}>
+                    ⚠️ 사이즈를 선택하지 않으면 자동 매칭으로 동작합니다
+                  </p>
+                )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* 구분선 */}

@@ -92,6 +92,9 @@ export async function POST(request: NextRequest) {
             options: {
               injectionMode: captureMetadata.injectionMode ?? "single",
               slotCount: captureMetadata.slotCount ?? 1,
+              creativeDimensions: captureMetadata.creativeDimensions ?? undefined,
+              adSizeMode: captureMetadata.adSizeMode ?? "auto",
+              targetAdSizes: captureMetadata.targetAdSizes ?? [],
             },
           });
 

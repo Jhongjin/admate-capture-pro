@@ -166,10 +166,58 @@ export class GdnCapture extends BaseChannel {
     this.diagnostics.slotsDetected = slots.length;
     console.log(`[GDN] 탐지된 슬롯: ${slots.length}개`);
     
-    // 📐 배너 사이즈 매칭: 업로드된 배너와 유사한 슬롯을 우선 정렬
+    // 📐 광고 사이즈 매칭
     const creativeDims = request.options?.creativeDimensions as { width: number; height: number } | undefined;
-    if (creativeDims && creativeDims.width > 0 && creativeDims.height > 0) {
-      console.log(`[GDN] 📐 배너 사이즈 매칭 활성화: ${creativeDims.width}x${creativeDims.height}`);
+    const adSizeMode = (request.options?.adSizeMode as string) || "auto";
+    const targetAdSizes = (request.options?.targetAdSizes as string[]) || [];
+
+    if (adSizeMode === "manual" && targetAdSizes.length > 0) {
+      // 🎯 수동 모드: 사용자가 선택한 사이즈의 슬롯만 타겟팅
+      console.log(`[GDN] 🎯 수동 사이즈 선택 모드: ${targetAdSizes.join(", ")}`);
+
+      // 선택된 사이즈를 파싱 (예: "300x250" → {w:300, h:250})
+      const parsedSizes = targetAdSizes.map((s) => {
+        const [w, h] = s.split("x").map(Number);
+        return { w, h };
+      }).filter((s) => s.w > 0 && s.h > 0);
+
+      // 각 슬롯에 대해 선택된 사이즈와의 매칭 점수 계산
+      const TOLERANCE = 50; // ±50px 허용 오차
+      const scoredSlots = slots.map((slot) => {
+        let bestMatch = 0;
+        for (const target of parsedSizes) {
+          const wDiff = Math.abs(slot.width - target.w);
+          const hDiff = Math.abs(slot.height - target.h);
+          if (wDiff <= TOLERANCE && hDiff <= TOLERANCE) {
+            // 정확할수록 높은 점수 (100이 완벽 매치)
+            const score = 100 - (wDiff + hDiff);
+            bestMatch = Math.max(bestMatch, score);
+          }
+        }
+        return { slot, matchScore: bestMatch };
+      });
+
+      // 매칭 슬롯을 우선 정렬 (매칭 점수 > confidence 순)
+      scoredSlots.sort((a, b) => {
+        if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+        return b.slot.confidence - a.slot.confidence;
+      });
+
+      // 정렬된 슬롯으로 교체
+      slots.length = 0;
+      scoredSlots.forEach((s) => slots.push(s.slot));
+
+      const matchedCount = scoredSlots.filter((s) => s.matchScore > 0).length;
+      console.log(`[GDN] 🎯 사이즈 매칭 결과: ${matchedCount}/${slots.length}개 슬롯 매칭`);
+
+      slots.slice(0, 5).forEach((s, i) => {
+        const scored = scoredSlots[i];
+        console.log(`[GDN]   [${i}] ${s.width}x${s.height} matchScore:${scored.matchScore} conf:${s.confidence}`);
+      });
+
+    } else if (creativeDims && creativeDims.width > 0 && creativeDims.height > 0) {
+      // ✨ 자동 모드: 업로드된 배너와 유사한 슬롯을 우선 정렬
+      console.log(`[GDN] ✨ 자동 사이즈 매칭: ${creativeDims.width}x${creativeDims.height}`);
       const creativeAspect = creativeDims.width / creativeDims.height;
 
       // 각 슬롯에 사이즈 매칭 점수 부여
@@ -181,7 +229,7 @@ export class GdnCapture extends BaseChannel {
         return b.confidence - a.confidence;
       });
 
-      console.log(`[GDN] 📐 매칭 후 슬롯 순서:`);
+      console.log(`[GDN] ✨ 매칭 후 슬롯 순서:`);
       slots.slice(0, 5).forEach((s, i) => {
         const score = this.calcSizeMatchScore(s, creativeDims, creativeAspect);
         console.log(`[GDN]   [${i}] ${s.width}x${s.height} matchScore:${score.toFixed(1)} conf:${s.confidence}`);

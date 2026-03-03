@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
       injectionMode = "single",  // "single" | "all" | "custom"
       slotCount = 1,             // custom 모드일 때 슬롯 수
       creativeDimensions,        // 📐 배너 사이즈 {width, height}
+      adSizeMode = "auto",       // 📐 "auto" | "manual"
+      targetAdSizes = [],        // 📐 수동 선택한 사이즈 배열
     } = body as {
       channel: ChannelType;
       publisherUrl?: string;
@@ -42,6 +44,8 @@ export async function POST(request: NextRequest) {
       injectionMode?: "single" | "all" | "custom";
       slotCount?: number;
       creativeDimensions?: { width: number; height: number };
+      adSizeMode?: "auto" | "manual";
+      targetAdSizes?: string[];
     };
 
     // URL 배열 통합
@@ -72,7 +76,7 @@ export async function POST(request: NextRequest) {
           click_url: clickUrl ?? null,
           capture_landing: captureLanding ?? false,
           status: "pending",
-          metadata: { injectionMode, slotCount, creativeDimensions },
+          metadata: { injectionMode, slotCount, creativeDimensions, adSizeMode, targetAdSizes },
         })
         .select()
         .single();
@@ -176,6 +180,8 @@ async function executeBatchCaptures(captureIds: string[]): Promise<void> {
             injectionMode: captureMetadata.injectionMode ?? "single",
             slotCount: captureMetadata.slotCount ?? 1,
             creativeDimensions: captureMetadata.creativeDimensions ?? undefined,
+            adSizeMode: captureMetadata.adSizeMode ?? "auto",
+            targetAdSizes: captureMetadata.targetAdSizes ?? [],
           },
         });
 
