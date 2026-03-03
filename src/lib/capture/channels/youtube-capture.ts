@@ -164,7 +164,7 @@ export class YouTubeCapture extends BaseChannel {
     await new Promise((r) => setTimeout(r, 1000));
 
     // 6) 플레이어 정보 수집 (확장된 셀렉터)
-    const playerInfo = await page.evaluate<{ found: boolean; width: number; height: number; sidebarFound: boolean }>(`
+    const playerInfo = await page.evaluate<{ found: boolean; width: number; height: number; top: number; left: number; sidebarFound: boolean }>(`
       (() => {
         // 다양한 셀렉터로 플레이어 탐색 (우선순위 순)
         const playerSelectors = [
@@ -194,13 +194,15 @@ export class YouTubeCapture extends BaseChannel {
 
         const sidebar = document.querySelector('#secondary, #related, ytd-watch-next-secondary-results-renderer');
         
-        if (!player) return { found: false, width: 0, height: 0, sidebarFound: !!sidebar };
+        if (!player) return { found: false, width: 0, height: 0, top: 0, left: 0, sidebarFound: !!sidebar };
         
         const rect = player.getBoundingClientRect();
         return {
           found: true,
           width: Math.round(rect.width),
           height: Math.round(rect.height),
+          top: Math.round(rect.top),
+          left: Math.round(rect.left),
           sidebarFound: !!sidebar
         };
       })()
@@ -277,183 +279,121 @@ export class YouTubeCapture extends BaseChannel {
 
   /**
    * 🎬 인스트림 (프리롤) 광고 시뮬레이션
-   * 영상 플레이어 위에 프리롤 광고 UI를 오버레이
+   * 📌 전략: document.body에 fixed 포지션으로 플레이어 위치에 정확히 오버레이
+   *    → YouTube 내부 z-index에 영향받지 않음
    */
   private async injectPrerollAd(
     page: IPageHandle,
     imgDataUrl: string,
-    playerInfo: { found: boolean; width: number; height: number }
+    playerInfo: { found: boolean; width: number; height: number; top: number; left: number }
   ): Promise<boolean> {
-    console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작`);
+    console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작 (fixed 포지션 방식)`);
 
     const result = await page.evaluate<boolean>(`
       (() => {
-        const imgUrl = ${JSON.stringify(imgDataUrl)};
+        try {
+          const imgUrl = ${JSON.stringify(imgDataUrl)};
 
-        // 플레이어 찾기
-        const player = document.querySelector('#movie_player, #player-container-outer, ytd-player, .html5-video-player');
-        if (!player) {
-          console.warn('[YouTube Inject] 플레이어를 찾을 수 없습니다');
+          // 플레이어 좌표 수집 — 다양한 셀렉터로 탐색
+          const playerSelectors = [
+            '#movie_player', '#player-container-inner', '#player-container-outer',
+            'ytd-player', '.html5-video-player', '#player',
+          ];
+
+          let playerRect = null;
+          for (const sel of playerSelectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 100 && r.height > 100) {
+                playerRect = r;
+                console.log('[YouTube Inject] 플레이어 발견:', sel, r.width + 'x' + r.height);
+                break;
+              }
+            }
+          }
+
+          // 플레이어 미발견 시 기본값 사용 (화면 상단 주요 영역)
+          const px = playerRect ? Math.round(playerRect.left) : 0;
+          const py = playerRect ? Math.round(playerRect.top) : 56; // YouTube 헤더 높이
+          const pw = playerRect ? Math.round(playerRect.width) : Math.round(window.innerWidth * 0.7);
+          const ph = playerRect ? Math.round(playerRect.height) : Math.round(window.innerHeight * 0.6);
+
+          console.log('[YouTube Inject] 오버레이 위치:', px, py, pw, ph);
+
+          // 📌 document.body에 fixed 오버레이 생성
+          const overlay = document.createElement('div');
+          overlay.id = 'admate-preroll-overlay';
+          overlay.setAttribute('data-injected', 'admate-youtube-preroll');
+          overlay.style.cssText = [
+            'position: fixed',
+            'top: ' + py + 'px',
+            'left: ' + px + 'px',
+            'width: ' + pw + 'px',
+            'height: ' + ph + 'px',
+            'z-index: 2147483647',  // max int — 절대 최상위
+            'background: #000',
+            'display: flex',
+            'align-items: center',
+            'justify-content: center',
+            'overflow: hidden',
+            'pointer-events: auto',
+          ].join(' !important;') + ' !important';
+
+          // 광고 소재 이미지
+          const img = document.createElement('img');
+          img.src = imgUrl;
+          img.setAttribute('data-injected', 'admate');
+          img.style.cssText = [
+            'max-width: 100%',
+            'max-height: 100%',
+            'object-fit: contain',
+            'display: block',
+          ].join(' !important;') + ' !important';
+          overlay.appendChild(img);
+
+          // 📺 "광고" 라벨 (좌상단)
+          const adLabel = document.createElement('div');
+          adLabel.style.cssText = 'position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.7);color:#fff;font-size:12px;font-family:YouTube Sans,Roboto,Arial,sans-serif;padding:4px 10px;border-radius:3px;font-weight:500;letter-spacing:0.3px;z-index:2147483647';
+          adLabel.textContent = '광고';
+          overlay.appendChild(adLabel);
+
+          // ⏭ "건너뛰기" 버튼 (우하단) — YouTube 스타일
+          const skipBtn = document.createElement('div');
+          skipBtn.style.cssText = 'position:absolute;bottom:76px;right:0;background:rgba(0,0,0,0.75);color:#fff;font-size:14px;font-family:YouTube Sans,Roboto,Arial,sans-serif;padding:10px 16px 10px 12px;border-radius:2px 0 0 2px;cursor:pointer;display:flex;align-items:center;gap:8px;border-left:3px solid #fff';
+          skipBtn.innerHTML = '광고 건너뛰기 <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
+          overlay.appendChild(skipBtn);
+
+          // ⏱ 타이머 바 (하단) — 노란색 프로그레스 바
+          const timerBg = document.createElement('div');
+          timerBg.style.cssText = 'position:absolute;bottom:0;left:0;width:100%;height:4px;background:rgba(255,255,255,0.2)';
+          overlay.appendChild(timerBg);
+
+          const timerBar = document.createElement('div');
+          timerBar.style.cssText = 'position:absolute;bottom:0;left:0;width:35%;height:4px;background:#f2bc42;border-radius:0 2px 0 0';
+          overlay.appendChild(timerBar);
+
+          // 🕐 광고 카운트다운 (좌하단)
+          const countdown = document.createElement('div');
+          countdown.style.cssText = 'position:absolute;bottom:46px;left:12px;background:rgba(0,0,0,0.7);color:#ddd;font-size:12px;font-family:YouTube Sans,Roboto,Arial,sans-serif;padding:5px 10px;border-radius:3px';
+          countdown.textContent = '0:05 / 0:15';
+          overlay.appendChild(countdown);
+
+          // 📍 "광고주 사이트 방문" 버튼
+          const visitBtn = document.createElement('div');
+          visitBtn.style.cssText = 'position:absolute;bottom:40px;right:0;background:rgba(255,203,0,0.95);color:#000;font-size:13px;font-family:YouTube Sans,Roboto,Arial,sans-serif;padding:8px 16px 8px 12px;font-weight:600;cursor:pointer;border-radius:2px 0 0 2px;display:flex;align-items:center;gap:6px';
+          visitBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg> 광고주 사이트 방문';
+          overlay.appendChild(visitBtn);
+
+          // body에 직접 추가 (YouTube DOM 구조 무시)
+          document.body.appendChild(overlay);
+
+          console.log('[YouTube Inject] ✅ 프리롤 광고 인젝션 성공 (fixed 방식, ' + pw + 'x' + ph + ')');
+          return true;
+        } catch (err) {
+          console.error('[YouTube Inject] ❌ 프리롤 인젝션 에러:', err);
           return false;
         }
-
-        const rect = player.getBoundingClientRect();
-        const pw = Math.round(rect.width) || 854;
-        const ph = Math.round(rect.height) || 480;
-
-        // 기존 비디오 숨기기
-        const video = player.querySelector('video');
-        if (video) {
-          video.style.opacity = '0';
-          video.pause();
-        }
-
-        // 프리롤 오버레이 컨테이너
-        const overlay = document.createElement('div');
-        overlay.setAttribute('data-injected', 'admate-youtube-preroll');
-        overlay.style.cssText = [
-          'position: absolute !important',
-          'top: 0 !important',
-          'left: 0 !important',
-          'width: ' + pw + 'px !important',
-          'height: ' + ph + 'px !important',
-          'z-index: 99999 !important',
-          'background: #000 !important',
-          'display: flex !important',
-          'align-items: center !important',
-          'justify-content: center !important',
-          'overflow: hidden !important',
-        ].join(';');
-
-        // 광고 소재 이미지
-        const img = document.createElement('img');
-        img.src = imgUrl;
-        img.setAttribute('data-injected', 'admate');
-        img.style.cssText = [
-          'max-width: 100% !important',
-          'max-height: 100% !important',
-          'object-fit: contain !important',
-          'display: block !important',
-        ].join(';');
-        overlay.appendChild(img);
-
-        // 📺 "광고" 라벨 (좌상단)
-        const adLabel = document.createElement('div');
-        adLabel.style.cssText = [
-          'position: absolute !important',
-          'top: 12px !important',
-          'left: 12px !important',
-          'background: rgba(0,0,0,0.7) !important',
-          'color: #fff !important',
-          'font-size: 12px !important',
-          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
-          'padding: 4px 10px !important',
-          'border-radius: 3px !important',
-          'font-weight: 500 !important',
-          'letter-spacing: 0.3px !important',
-          'z-index: 100000 !important',
-        ].join(';');
-        adLabel.textContent = '광고';
-        overlay.appendChild(adLabel);
-
-        // ⏭ "건너뛰기" 버튼 (우하단) — YouTube 스타일
-        const skipBtn = document.createElement('div');
-        skipBtn.style.cssText = [
-          'position: absolute !important',
-          'bottom: 80px !important',
-          'right: 0 !important',
-          'background: rgba(0,0,0,0.75) !important',
-          'color: #fff !important',
-          'font-size: 14px !important',
-          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
-          'padding: 10px 16px 10px 12px !important',
-          'border-radius: 2px 0 0 2px !important',
-          'cursor: pointer !important',
-          'display: flex !important',
-          'align-items: center !important',
-          'gap: 8px !important',
-          'z-index: 100000 !important',
-          'border-left: 3px solid #fff !important',
-        ].join(';');
-        skipBtn.innerHTML = '광고 건너뛰기 <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
-        overlay.appendChild(skipBtn);
-
-        // ⏱ 타이머 바 (하단) — 노란색 프로그레스 바
-        const timerBar = document.createElement('div');
-        timerBar.style.cssText = [
-          'position: absolute !important',
-          'bottom: 0 !important',
-          'left: 0 !important',
-          'width: 35% !important',
-          'height: 4px !important',
-          'background: #f2bc42 !important',
-          'z-index: 100001 !important',
-          'border-radius: 0 2px 0 0 !important',
-        ].join(';');
-        overlay.appendChild(timerBar);
-
-        // 전체 타이머 바 배경 (회색)
-        const timerBg = document.createElement('div');
-        timerBg.style.cssText = [
-          'position: absolute !important',
-          'bottom: 0 !important',
-          'left: 0 !important',
-          'width: 100% !important',
-          'height: 4px !important',
-          'background: rgba(255,255,255,0.2) !important',
-          'z-index: 100000 !important',
-        ].join(';');
-        overlay.appendChild(timerBg);
-
-        // 🕐 광고 카운트다운 (좌하단)
-        const countdown = document.createElement('div');
-        countdown.style.cssText = [
-          'position: absolute !important',
-          'bottom: 50px !important',
-          'left: 12px !important',
-          'background: rgba(0,0,0,0.7) !important',
-          'color: #ddd !important',
-          'font-size: 12px !important',
-          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
-          'padding: 5px 10px !important',
-          'border-radius: 3px !important',
-          'z-index: 100000 !important',
-        ].join(';');
-        countdown.textContent = '0:05 / 0:15';
-        overlay.appendChild(countdown);
-
-        // 📍 "광고주 사이트 방문" 버튼 (하단)
-        const visitBtn = document.createElement('div');
-        visitBtn.style.cssText = [
-          'position: absolute !important',
-          'bottom: 44px !important',
-          'right: 0 !important',
-          'background: rgba(255,203,0,0.95) !important',
-          'color: #000 !important',
-          'font-size: 13px !important',
-          'font-family: "YouTube Sans", "Roboto", Arial, sans-serif !important',
-          'padding: 8px 16px 8px 12px !important',
-          'font-weight: 600 !important',
-          'cursor: pointer !important',
-          'z-index: 100000 !important',
-          'border-radius: 2px 0 0 2px !important',
-          'display: flex !important',
-          'align-items: center !important',
-          'gap: 6px !important',
-        ].join(';');
-        visitBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg> 광고주 사이트 방문';
-        overlay.appendChild(visitBtn);
-
-        // 플레이어에 relative 포지션 보장
-        const playerEl = player;
-        const computedStyle = window.getComputedStyle(playerEl);
-        if (computedStyle.position === 'static') {
-          playerEl.style.position = 'relative';
-        }
-
-        playerEl.appendChild(overlay);
-        console.log('[YouTube Inject] ✅ 프리롤 광고 인젝션 성공 (' + pw + 'x' + ph + ')');
-        return true;
       })()
     `);
 
