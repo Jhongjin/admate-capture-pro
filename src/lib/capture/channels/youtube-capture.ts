@@ -489,105 +489,99 @@ export class YouTubeCapture extends BaseChannel {
 
   /**
    * 🎭 오버레이 광고 인젝션
-   * 영상 플레이어 하단에 반투명 오버레이 배너 삽입
+   * 📌 전략: document.body에 fixed 포지션으로 플레이어 하단 위치에 오버레이
    */
   private async injectOverlayAd(
     page: IPageHandle,
     imgDataUrl: string,
-    playerInfo: { found: boolean; width: number; height: number }
+    playerInfo: { found: boolean; width: number; height: number; top: number; left: number }
   ): Promise<boolean> {
-    console.log(`[YouTube] 🎭 오버레이 광고 인젝션 시작`);
+    console.log(`[YouTube] 🎭 오버레이 광고 인젝션 시작 (fixed 포지션 방식)`);
 
     const result = await page.evaluate<boolean>(`
       (() => {
-        const imgUrl = ${JSON.stringify(imgDataUrl)};
+        try {
+          const imgUrl = ${JSON.stringify(imgDataUrl)};
 
-        const player = document.querySelector('#movie_player, #player-container-outer, ytd-player, .html5-video-player');
-        if (!player) {
-          console.warn('[YouTube Inject] 플레이어를 찾을 수 없습니다');
+          // 플레이어 좌표 수집
+          const playerSelectors = [
+            '#movie_player', '#player-container-inner', '#player-container-outer',
+            'ytd-player', '.html5-video-player', '#player',
+          ];
+
+          let playerRect = null;
+          for (const sel of playerSelectors) {
+            const el = document.querySelector(sel);
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 100 && r.height > 100) {
+                playerRect = r;
+                break;
+              }
+            }
+          }
+
+          // 플레이어 기준 좌표 계산
+          const px = playerRect ? Math.round(playerRect.left) : 0;
+          const py = playerRect ? Math.round(playerRect.top) : 56;
+          const pw = playerRect ? Math.round(playerRect.width) : Math.round(window.innerWidth * 0.7);
+          const ph = playerRect ? Math.round(playerRect.height) : Math.round(window.innerHeight * 0.6);
+
+          // 오버레이 배너 크기 (플레이어 너비의 70%, 높이 70px)
+          const bannerW = Math.round(pw * 0.7);
+          const bannerH = 70;
+          // 플레이어 하단에서 80px 위
+          const bannerTop = py + ph - bannerH - 80;
+          const bannerLeft = px + Math.round((pw - bannerW) / 2);
+
+          console.log('[YouTube Inject] 오버레이 위치:', bannerLeft, bannerTop, bannerW, bannerH);
+
+          // 📌 document.body에 fixed 오버레이 생성
+          const overlay = document.createElement('div');
+          overlay.id = 'admate-overlay-ad';
+          overlay.setAttribute('data-injected', 'admate-youtube-overlay');
+          overlay.style.cssText = [
+            'position: fixed',
+            'top: ' + bannerTop + 'px',
+            'left: ' + bannerLeft + 'px',
+            'width: ' + bannerW + 'px',
+            'height: ' + bannerH + 'px',
+            'z-index: 2147483647',
+            'background: rgba(0,0,0,0.85)',
+            'border-radius: 4px',
+            'overflow: hidden',
+            'display: flex',
+            'align-items: stretch',
+            'box-shadow: 0 2px 8px rgba(0,0,0,0.3)',
+          ].join(' !important;') + ' !important';
+
+          // 광고 이미지
+          const img = document.createElement('img');
+          img.src = imgUrl;
+          img.setAttribute('data-injected', 'admate');
+          img.style.cssText = 'height:100% !important;width:auto !important;object-fit:cover !important;flex-shrink:0 !important';
+          overlay.appendChild(img);
+
+          // 텍스트 영역
+          const textArea = document.createElement('div');
+          textArea.style.cssText = 'flex:1;display:flex;flex-direction:column;justify-content:center;padding:8px 12px;min-width:0';
+          textArea.innerHTML = '<div style="font-size:13px;font-weight:500;color:#fff;font-family:Roboto,Noto Sans KR,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">광고주 배너</div><div style="font-size:11px;color:#aaa;font-family:Roboto,Noto Sans KR,Arial,sans-serif;margin-top:2px;">ad · 자세히 보기</div>';
+          overlay.appendChild(textArea);
+
+          // 닫기 버튼
+          const closeBtn = document.createElement('div');
+          closeBtn.style.cssText = 'position:absolute;top:-8px;right:-8px;width:20px;height:20px;background:rgba(0,0,0,0.8);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2147483647;border:1px solid rgba(255,255,255,0.3)';
+          closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+          overlay.appendChild(closeBtn);
+
+          document.body.appendChild(overlay);
+
+          console.log('[YouTube Inject] ✅ 오버레이 광고 인젝션 성공 (fixed 방식, ' + bannerW + 'x' + bannerH + ')');
+          return true;
+        } catch (err) {
+          console.error('[YouTube Inject] ❌ 오버레이 인젝션 에러:', err);
           return false;
         }
-
-        const rect = player.getBoundingClientRect();
-        const pw = Math.round(rect.width) || 854;
-
-        // 오버레이 배너 크기 (플레이어 너비의 70%, 높이 70px)
-        const bannerW = Math.round(pw * 0.7);
-        const bannerH = 70;
-
-        // 오버레이 컨테이너
-        const overlay = document.createElement('div');
-        overlay.setAttribute('data-injected', 'admate-youtube-overlay');
-        overlay.style.cssText = [
-          'position: absolute !important',
-          'bottom: 60px !important',
-          'left: 50% !important',
-          'transform: translateX(-50%) !important',
-          'width: ' + bannerW + 'px !important',
-          'height: ' + bannerH + 'px !important',
-          'z-index: 99999 !important',
-          'background: rgba(0,0,0,0.85) !important',
-          'border-radius: 4px !important',
-          'overflow: hidden !important',
-          'display: flex !important',
-          'align-items: stretch !important',
-          'box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important',
-        ].join(';');
-
-        // 광고 이미지
-        const img = document.createElement('img');
-        img.src = imgUrl;
-        img.setAttribute('data-injected', 'admate');
-        img.style.cssText = [
-          'height: 100% !important',
-          'width: auto !important',
-          'object-fit: cover !important',
-          'flex-shrink: 0 !important',
-        ].join(';');
-        overlay.appendChild(img);
-
-        // 텍스트 영역 (오버레이 우측)
-        const textArea = document.createElement('div');
-        textArea.style.cssText = [
-          'flex: 1 !important',
-          'display: flex !important',
-          'flex-direction: column !important',
-          'justify-content: center !important',
-          'padding: 8px 12px !important',
-          'min-width: 0 !important',
-        ].join(';');
-        textArea.innerHTML = '<div style="font-size:13px;font-weight:500;color:#fff;font-family:Roboto,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">광고주 배너</div><div style="font-size:11px;color:#aaa;font-family:Roboto,Arial,sans-serif;margin-top:2px;">ad · 자세히 보기</div>';
-        overlay.appendChild(textArea);
-
-        // 닫기 버튼
-        const closeBtn = document.createElement('div');
-        closeBtn.style.cssText = [
-          'position: absolute !important',
-          'top: -8px !important',
-          'right: -8px !important',
-          'width: 20px !important',
-          'height: 20px !important',
-          'background: rgba(0,0,0,0.8) !important',
-          'border-radius: 50% !important',
-          'display: flex !important',
-          'align-items: center !important',
-          'justify-content: center !important',
-          'cursor: pointer !important',
-          'z-index: 100000 !important',
-          'border: 1px solid rgba(255,255,255,0.3) !important',
-        ].join(';');
-        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-        overlay.appendChild(closeBtn);
-
-        // 플레이어에 relative 포지션 보장
-        const computedStyle = window.getComputedStyle(player);
-        if (computedStyle.position === 'static') {
-          player.style.position = 'relative';
-        }
-
-        player.appendChild(overlay);
-        console.log('[YouTube Inject] ✅ 오버레이 광고 인젝션 성공 (' + bannerW + 'x' + bannerH + ')');
-        return true;
       })()
     `);
 
