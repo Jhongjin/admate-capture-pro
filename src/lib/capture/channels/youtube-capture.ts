@@ -112,6 +112,9 @@ export class YouTubeCapture extends BaseChannel {
       timeout: 45000,
     });
 
+    // 3.3) 🔤 한글 폰트 주입 (Vercel 서버리스 Chromium에는 CJK 폰트가 없음)
+    await this.injectKoreanFonts(page);
+
     // 3.5) 쿠키 동의 팝업 강제 처리 (여전히 나타나는 경우)
     await this.dismissYouTubeConsent(page);
 
@@ -648,4 +651,49 @@ export class YouTubeCapture extends BaseChannel {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
+
+  /** 🔤 한글 폰트 주입 — Vercel 서버리스 Chromium에 CJK 폰트 없는 문제 해결 */
+  private async injectKoreanFonts(page: IPageHandle): Promise<void> {
+    try {
+      await page.evaluate<void>(`
+        (() => {
+          // 이미 주입됐으면 스킵
+          if (document.querySelector('#admate-korean-fonts')) return;
+
+          // Google Fonts 로드 (Noto Sans KR + Roboto)
+          const link = document.createElement('link');
+          link.id = 'admate-korean-fonts';
+          link.rel = 'stylesheet';
+          link.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Roboto:wght@300;400;500;700&display=swap';
+          document.head.appendChild(link);
+
+          // 전체 페이지에 폰트 강제 적용
+          const style = document.createElement('style');
+          style.id = 'admate-korean-fonts-style';
+          style.textContent = \`
+            * {
+              font-family: 'Roboto', 'Noto Sans KR', 'YouTube Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif !important;
+            }
+            /* YouTube 특정 요소에도 적용 */
+            ytd-watch-flexy, ytd-compact-video-renderer, #title, #video-title,
+            #description, #info, .ytd-video-primary-info-renderer,
+            .ytd-video-secondary-info-renderer, #content-text,
+            yt-formatted-string, span.yt-core-attributed-string {
+              font-family: 'Roboto', 'Noto Sans KR', sans-serif !important;
+            }
+          \`;
+          document.head.appendChild(style);
+
+          console.log('[YouTube Inject] 🔤 한글 폰트 주입 완료');
+        })()
+      `);
+
+      // 폰트 로드 대기
+      await new Promise((r) => setTimeout(r, 1500));
+      console.log(`[YouTube] 🔤 한글 폰트 인젝션 완료`);
+    } catch (err) {
+      console.warn(`[YouTube] 🔤 한글 폰트 인젝션 실패 (진행 계속):`, err);
+    }
+  }
 }
+
