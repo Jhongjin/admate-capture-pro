@@ -217,20 +217,76 @@ export class YouTubeCapture extends BaseChannel {
     console.log(`[YouTube] 플레이어: ${playerInfo.found ? `✅ ${playerInfo.width}x${playerInfo.height}` : "❌ 미감지"}`);
     console.log(`[YouTube] 사이드바: ${playerInfo.sidebarFound ? "✅" : "❌"}`);
 
-    // 6.5) 🧹 인젝션 전 방해 요소 제거 (동의 팝업, 오버레이 등)
+    // 6.5) 🧹 인젝션 전 방해 요소 제거 (구독 팝업, 봇 감지, 동의 팝업 등)
     await page.evaluate<void>(`
       (() => {
-        // YouTube 자체 오버레이/팝업/에러 메시지 제거
-        const removeSelectors = [
-          '.ytp-error', '.ytp-error-content', '.ytp-error-content-wrap',
-          'ytd-consent-bump-v2-lightbox', 'tp-yt-iron-overlay-backdrop',
-          '.ytp-offline-slate', '#consent-bump', 'ytd-enforcement-message-view-model',
-          'tp-yt-paper-dialog', '.consent-bump-v2-lightbox',
-          '.ytp-pause-overlay',
+        // 1) "채널을 구독하시겠습니까?" 팝업 완전 제거
+        const popupSelectors = [
+          'ytd-popup-container',
+          'tp-yt-paper-dialog',
+          'yt-confirm-dialog-renderer',
+          'ytd-modal-with-title-and-button-renderer',
+          'ytd-mealbar-promo-renderer',
+          '#dialog',
         ];
-        removeSelectors.forEach(sel => {
-          document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
+        popupSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => el.remove());
         });
+
+        // 2) "로그인하여 봇이 아님을 확인하세요" 메시지 숨김
+        //    플레이어 내부의 에러/확인 오버레이를 숨김
+        const playerErrorSelectors = [
+          '.ytp-error',
+          '.ytp-error-content',
+          '.ytp-error-content-wrap',
+          '.ytp-error-content-wrap-reason',
+          '.ytp-offline-slate',
+          '.ytp-offline-slate-bar',
+          'ytd-enforcement-message-view-model',
+          '.ytp-pause-overlay',
+          '#clarify-box',
+          '.ytp-suggested-action',
+          // 봇 확인 메시지 (로그인 프롬프트)
+          '.ytp-error-content-wrap .ytp-error-content-wrap-reason',
+        ];
+        playerErrorSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => {
+            el.style.display = 'none !important';
+            el.style.visibility = 'hidden !important';
+            el.style.opacity = '0 !important';
+          });
+        });
+
+        // 3) 쿠키 동의 관련 요소 제거
+        const consentSelectors = [
+          'ytd-consent-bump-v2-lightbox',
+          'tp-yt-iron-overlay-backdrop',
+          '#consent-bump',
+          '.consent-bump-v2-lightbox',
+        ];
+        consentSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+
+        // 4) 텍스트 기반으로 "봇이 아님" 메시지가 포함된 요소 숨김
+        const allTexts = document.querySelectorAll('*');
+        allTexts.forEach(el => {
+          const text = el.textContent || '';
+          if (
+            (text.includes('봇이 아님을 확인') || text.includes('confirm you') ||
+             text.includes('Confirm your identity') || text.includes('로그인하여')) &&
+            el.closest('#movie_player, #player-container-inner, .html5-video-player')
+          ) {
+            el.style.display = 'none';
+          }
+        });
+
+        // 5) body/html overflow 복원 (모달이 스크롤 막는 경우)
+        document.body.style.overflow = '';
+        document.body.style.position = '';
+        document.documentElement.style.overflow = '';
+
+        console.log('[YouTube Cleanup] ✅ 방해 요소 제거 완료');
       })()
     `);
 
