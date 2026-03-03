@@ -108,6 +108,15 @@ class PuppeteerPageHandle implements IPageHandle {
     await this.page.setBypassCSP(enabled);
   }
 
+  async setCookie(cookie: { name: string; value: string; domain?: string; path?: string }): Promise<void> {
+    await this.page.setCookie({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path ?? "/",
+    });
+  }
+
   url(): string {
     return this.page.url();
   }

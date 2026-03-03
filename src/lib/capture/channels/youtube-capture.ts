@@ -77,33 +77,121 @@ export class YouTubeCapture extends BaseChannel {
     this.diagnostics.creativeDownloaded = ok;
     this.diagnostics.creativeBase64Size = sizeKB;
 
-    // 2) YouTube 페이지 로드
-    //    쿠키 동의 팝업 방지를 위해 consent 파라미터 추가
-    let targetUrl = request.publisherUrl;
-    if (targetUrl.includes("youtube.com") && !targetUrl.includes("consent")) {
-      const separator = targetUrl.includes("?") ? "&" : "?";
-      targetUrl += `${separator}autoplay=0`;
+    // 2) 🍪 쿠키 동의 사전 처리 — CONSENT 쿠키 설정
+    console.log(`[YouTube] 🍪 쿠키 동의 사전 처리 시작`);
+    try {
+      // YouTube 도메인에 CONSENT 쿠키 설정 (동의 완료 상태)
+      await page.setCookie({
+        name: "CONSENT",
+        value: "PENDING+987",
+        domain: ".youtube.com",
+        path: "/",
+      });
+      await page.setCookie({
+        name: "CONSENT",
+        value: "YES+cb.20210328-17-p0.en+FX+987",
+        domain: ".youtube.com",
+        path: "/",
+      });
+      // SOCS 쿠키도 설정 (Google 통합 동의)
+      await page.setCookie({
+        name: "SOCS",
+        value: "CAISHAgBEhJnd3NfMjAyMzA4MTUtMF9SQzIaAmVuIAEaBgiA_LyaBg",
+        domain: ".youtube.com",
+        path: "/",
+      });
+      console.log(`[YouTube] 🍪 CONSENT 쿠키 설정 완료`);
+    } catch (cookieErr) {
+      console.warn(`[YouTube] 🍪 쿠키 설정 실패 (진행 계속):`, cookieErr);
     }
 
+    // 3) YouTube 페이지 로드
+    const targetUrl = request.publisherUrl;
     await page.goto(targetUrl, {
       waitUntil: "networkidle2",
       timeout: 45000,
     });
 
-    // 2.5) YouTube 쿠키 동의 팝업 제거
+    // 3.5) 쿠키 동의 팝업 강제 처리 (여전히 나타나는 경우)
     await this.dismissYouTubeConsent(page);
 
-    // 3) YouTube 페이지 안정화 대기
+    // 4) YouTube 페이지 안정화 대기
     await new Promise((r) => setTimeout(r, 3000));
 
-    // 4) 영상 일시정지 (깨끗한 스크린샷을 위해)
+    // 4.5) 쿠키 동의 팝업이 여전히 있으면 재시도
+    const hasConsent = await page.evaluate<boolean>(`
+      (() => {
+        const consentDialog = document.querySelector(
+          'ytd-consent-bump-v2-lightbox, tp-yt-iron-overlay-backdrop, ' +
+          '[action*="consent"], #consent-bump, .consent-bump-v2-lightbox, ' +
+          'ytd-enforcement-message-view-model'
+        );
+        return !!consentDialog;
+      })()
+    `);
+
+    if (hasConsent) {
+      console.log(`[YouTube] 🍪 쿠키 동의 팝업 여전히 존재 — 강제 제거 + 페이지 리로드`);
+      await page.evaluate<void>(`
+        (() => {
+          // 모든 동의 관련 요소 강제 제거
+          const selectors = [
+            'ytd-consent-bump-v2-lightbox',
+            'tp-yt-iron-overlay-backdrop',
+            '#consent-bump',
+            '.consent-bump-v2-lightbox',
+            'ytd-enforcement-message-view-model',
+            'tp-yt-paper-dialog',
+            'ytd-popup-container',
+          ];
+          selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => el.remove());
+          });
+
+          // body overflow 복원
+          document.body.style.overflow = '';
+          document.documentElement.style.overflow = '';
+        })()
+      `);
+      
+      // 강제 리로드
+      await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 45000 });
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    // 5) 영상 일시정지 (깨끗한 스크린샷을 위해)
     await this.pauseVideo(page);
     await new Promise((r) => setTimeout(r, 1000));
 
-    // 5) 플레이어 정보 수집
+    // 6) 플레이어 정보 수집 (확장된 셀렉터)
     const playerInfo = await page.evaluate<{ found: boolean; width: number; height: number; sidebarFound: boolean }>(`
       (() => {
-        const player = document.querySelector('#movie_player, #player, ytd-player, .html5-video-player');
+        // 다양한 셀렉터로 플레이어 탐색 (우선순위 순)
+        const playerSelectors = [
+          '#movie_player',
+          '#player-container-inner',
+          '#player-container-outer',
+          'ytd-player#ytd-player',
+          'ytd-player',
+          '.html5-video-player',
+          '#player',
+          '#ytd-player',
+          'div.ytd-watch-flexy#player',
+        ];
+
+        let player = null;
+        for (const sel of playerSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            // 실제 크기가 있는 요소만 사용
+            if (rect.width > 100 && rect.height > 100) {
+              player = el;
+              break;
+            }
+          }
+        }
+
         const sidebar = document.querySelector('#secondary, #related, ytd-watch-next-secondary-results-renderer');
         
         if (!player) return { found: false, width: 0, height: 0, sidebarFound: !!sidebar };
@@ -124,7 +212,24 @@ export class YouTubeCapture extends BaseChannel {
     console.log(`[YouTube] 플레이어: ${playerInfo.found ? `✅ ${playerInfo.width}x${playerInfo.height}` : "❌ 미감지"}`);
     console.log(`[YouTube] 사이드바: ${playerInfo.sidebarFound ? "✅" : "❌"}`);
 
-    // 6) 광고 유형별 인젝션
+    // 6.5) 🧹 인젝션 전 방해 요소 제거 (동의 팝업, 오버레이 등)
+    await page.evaluate<void>(`
+      (() => {
+        // YouTube 자체 오버레이/팝업/에러 메시지 제거
+        const removeSelectors = [
+          '.ytp-error', '.ytp-error-content', '.ytp-error-content-wrap',
+          'ytd-consent-bump-v2-lightbox', 'tp-yt-iron-overlay-backdrop',
+          '.ytp-offline-slate', '#consent-bump', 'ytd-enforcement-message-view-model',
+          'tp-yt-paper-dialog', '.consent-bump-v2-lightbox',
+          '.ytp-pause-overlay',
+        ];
+        removeSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => { el.style.display = 'none'; });
+        });
+      })()
+    `);
+
+    // 7) 광고 유형별 인젝션
     let injectionSuccess = false;
 
     switch (adType) {
@@ -146,10 +251,10 @@ export class YouTubeCapture extends BaseChannel {
       await this.injectPrerollAd(page, creativeDataUrl, playerInfo);
     }
 
-    // 7) 렌더링 안정화
+    // 8) 렌더링 안정화
     await new Promise((r) => setTimeout(r, 2000));
 
-    // 8) 스크롤 최상단 복원
+    // 9) 스크롤 최상단 복원
     await page.evaluate<void>(`
       (() => {
         window.scrollTo({ top: 0, behavior: 'instant' });
@@ -160,7 +265,7 @@ export class YouTubeCapture extends BaseChannel {
     `);
     await new Promise((r) => setTimeout(r, 1000));
 
-    // 9) 전체 페이지 스크린샷
+    // 10) 전체 페이지 스크린샷
     const screenshot = await page.screenshot({
       fullPage: false, // YouTube는 뷰포트 캡처가 더 적합
       type: "png",
