@@ -162,6 +162,37 @@ export class YouTubeCapture extends BaseChannel {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
+    // 🔑 4.7) 봇 감지 메시지 확인 + embed URL 폴백
+    const botDetected = await this.checkBotDetection(page);
+
+    if (botDetected) {
+      console.log(`[YouTube] 🤖 봇 감지 탐지됨 — embed URL 폴백 시도`);
+
+      // embed URL로 전환 (봇 감지가 훨씬 느슨함)
+      const embedUrl = this.convertToEmbedUrl(targetUrl);
+      if (embedUrl) {
+        console.log(`[YouTube] 🔄 embed URL로 전환: ${embedUrl}`);
+        await page.goto(embedUrl, { waitUntil: "networkidle2", timeout: 45000 });
+        await new Promise((r) => setTimeout(r, 3000));
+
+        // embed에서도 봇 감지가 뜨는지 확인
+        const embedBotDetected = await this.checkBotDetection(page);
+        if (embedBotDetected) {
+          console.warn(`[YouTube] ⚠️ embed에서도 봇 감지 — 원본 URL로 복원 후 강제 정리`);
+          await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 45000 });
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          console.log(`[YouTube] ✅ embed URL에서 봇 감지 우회 성공`);
+          // embed 모드에서는 전체 YouTube 레이아웃이 없으므로
+          // 원본 페이지로 돌아가서 영상 영역만 embed iframe으로 교체
+          await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 45000 });
+          await new Promise((r) => setTimeout(r, 2000));
+          await this.replacePlayerWithEmbed(page, embedUrl);
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+    }
+
     // 5) 영상 일시정지 (깨끗한 스크린샷을 위해)
     await this.pauseVideo(page);
     await new Promise((r) => setTimeout(r, 1000));
@@ -744,6 +775,191 @@ export class YouTubeCapture extends BaseChannel {
     } catch (err) {
       console.warn(`[YouTube] 🔤 한글 폰트 인젝션 실패 (진행 계속):`, err);
     }
+  }
+
+  /**
+   * 🤖 봇 감지 메시지 존재 여부 확인
+   * "로그인하여 봇이 아님을 확인하세요" 등의 메시지가 있으면 true 반환
+   */
+  private async checkBotDetection(page: IPageHandle): Promise<boolean> {
+    const result = await page.evaluate<{ detected: boolean; message: string }>(`
+      (() => {
+        // 1) YouTube 봇 감지 전용 요소 확인
+        const enforcementMsg = document.querySelector('ytd-enforcement-message-view-model');
+        if (enforcementMsg) {
+          return { detected: true, message: 'ytd-enforcement-message-view-model 발견' };
+        }
+
+        // 2) 플레이어 에러 화면 확인 (봇 감지 시 표시됨)
+        const playerError = document.querySelector('.ytp-error');
+        if (playerError) {
+          const errorText = playerError.textContent || '';
+          if (errorText.includes('봇') || errorText.includes('로그인') ||
+              errorText.includes('confirm') || errorText.includes('Sign in') ||
+              errorText.includes('bot')) {
+            return { detected: true, message: '플레이어 에러 (봇 감지): ' + errorText.substring(0, 100) };
+          }
+        }
+
+        // 3) 텍스트 기반 봇 감지 메시지 검색
+        const body = document.body?.innerText || '';
+        const botKeywords = [
+          '봇이 아님을 확인',
+          '로그인하여 봇이 아님',
+          'Confirm you\\'re not a bot',
+          'confirm your identity',
+          'Sign in to confirm you',
+          'confirm that you\\'re not a bot',
+        ];
+
+        for (const keyword of botKeywords) {
+          if (body.includes(keyword)) {
+            return { detected: true, message: '텍스트 감지: ' + keyword };
+          }
+        }
+
+        // 4) video 요소가 있지만 재생 불가 상태인지 확인
+        const video = document.querySelector('video');
+        if (video) {
+          const hasError = video.error !== null;
+          const noSrc = !video.src && !video.currentSrc;
+          if (hasError || noSrc) {
+            // video가 있지만 소스가 없으면 봇 감지 가능성
+            const errorOverlay = document.querySelector(
+              '.ytp-error-content, .ytp-error-content-wrap, .ytp-offline-slate'
+            );
+            if (errorOverlay) {
+              return { detected: true, message: '비디오 소스 없음 + 에러 오버레이 감지' };
+            }
+          }
+        }
+
+        return { detected: false, message: 'OK' };
+      })()
+    `);
+
+    if (result.detected) {
+      console.log(`[YouTube] 🤖 봇 감지 확인: ${result.message}`);
+    } else {
+      console.log(`[YouTube] ✅ 봇 감지 없음 — 정상 상태`);
+    }
+
+    return result.detected;
+  }
+
+  /**
+   * 🔄 YouTube watch URL → embed URL 변환
+   * embed URL은 봇 감지가 훨씬 느슨함
+   */
+  private convertToEmbedUrl(watchUrl: string): string | null {
+    try {
+      const url = new URL(watchUrl);
+      let videoId: string | null = null;
+
+      // youtube.com/watch?v=VIDEO_ID
+      if (url.hostname.includes('youtube.com') && url.pathname === '/watch') {
+        videoId = url.searchParams.get('v');
+      }
+      // youtu.be/VIDEO_ID
+      else if (url.hostname === 'youtu.be') {
+        videoId = url.pathname.slice(1);
+      }
+      // youtube.com/embed/VIDEO_ID (이미 embed)
+      else if (url.pathname.startsWith('/embed/')) {
+        return watchUrl; // 이미 embed URL
+      }
+
+      if (!videoId) return null;
+
+      // autoplay=1&mute=1 → 자동 재생 (봇 감지 없이)
+      return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&rel=0&showinfo=0&controls=1`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 📺 YouTube 플레이어 영역을 embed iframe으로 교체
+   * 봇 감지가 뜬 원본 페이지에서 player 영역만 embed로 대체
+   * → YouTube 레이아웃(제목, 댓글, 사이드바)은 유지하면서 영상만 정상 표시
+   */
+  private async replacePlayerWithEmbed(page: IPageHandle, embedUrl: string): Promise<void> {
+    console.log(`[YouTube] 📺 플레이어를 embed iframe으로 교체 중...`);
+
+    await page.evaluate<void>(`
+      (() => {
+        const embedSrc = ${JSON.stringify(embedUrl)};
+
+        // 플레이어 컨테이너 찾기
+        const playerSelectors = [
+          '#movie_player',
+          '#player-container-inner',
+          'ytd-player',
+          '.html5-video-player',
+        ];
+
+        let playerEl = null;
+        for (const sel of playerSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 100 && r.height > 100) {
+              playerEl = el;
+              break;
+            }
+          }
+        }
+
+        if (!playerEl) {
+          console.warn('[YouTube Embed] 플레이어를 찾을 수 없음');
+          return;
+        }
+
+        const rect = playerEl.getBoundingClientRect();
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+
+        // 기존 플레이어 내용 제거
+        playerEl.innerHTML = '';
+
+        // embed iframe 삽입
+        const iframe = document.createElement('iframe');
+        iframe.src = embedSrc;
+        iframe.width = String(w);
+        iframe.height = String(h);
+        iframe.frameBorder = '0';
+        iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+        iframe.allowFullscreen = true;
+        iframe.style.cssText = [
+          'width: 100% !important',
+          'height: 100% !important',
+          'border: none !important',
+          'display: block !important',
+        ].join(';');
+
+        playerEl.appendChild(iframe);
+        playerEl.style.overflow = 'hidden';
+        playerEl.style.position = 'relative';
+
+        // 봇 감지 관련 오버레이 모두 제거
+        const removeSelectors = [
+          '.ytp-error',
+          '.ytp-error-content',
+          '.ytp-error-content-wrap',
+          'ytd-enforcement-message-view-model',
+          '.ytp-offline-slate',
+        ];
+        removeSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+
+        console.log('[YouTube Embed] ✅ 플레이어 embed 교체 완료 (' + w + 'x' + h + ')');
+      })()
+    `);
+
+    // iframe 로드 대기
+    await new Promise((r) => setTimeout(r, 3000));
+    console.log(`[YouTube] 📺 embed iframe 로드 완료`);
   }
 }
 

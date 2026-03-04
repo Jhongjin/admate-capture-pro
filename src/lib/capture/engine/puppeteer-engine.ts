@@ -1,5 +1,13 @@
 /**
- * PuppeteerEngine — @sparticuz/chromium + puppeteer-core 구현체
+ * PuppeteerEngine — puppeteer-extra + stealth 플러그인 기반 구현체
+ *
+ * ✅ puppeteer-extra-plugin-stealth 적용:
+ *    - navigator.webdriver CDP 레벨 제거
+ *    - chrome.runtime / chrome.app 완벽 위장
+ *    - WebGL vendor/renderer 위장
+ *    - iframe contentWindow 감지 우회
+ *    - User-Agent Client Hints 대응
+ *    - headless 미디어 코덱 감지 우회
  *
  * 로컬 개발: IS_LOCAL=true → 시스템 Chrome 사용
  * Vercel 배포: @sparticuz/chromium 서버리스 바이너리 사용
@@ -145,18 +153,25 @@ export class PuppeteerEngine implements IBrowserEngine {
   }
 
   async launch(): Promise<void> {
-    const puppeteer = await import("puppeteer-core");
+    // 🔑 puppeteer-extra + stealth 플러그인 로드
+    const puppeteerExtra = await import("puppeteer-extra");
+    const StealthPlugin = await import("puppeteer-extra-plugin-stealth");
+
+    // stealth 플러그인 등록 (10가지+ 봇 감지 회피 모듈 자동 적용)
+    const stealth = StealthPlugin.default();
+    puppeteerExtra.default.use(stealth);
+
     const isLocal = process.env.IS_LOCAL === "true";
 
     if (isLocal) {
       // 로컬: 시스템에 설치된 Chrome 사용
       const localPath = await this.findLocalChrome();
-      this.browser = await puppeteer.default.launch({
+      this.browser = await puppeteerExtra.default.launch({
         args: BROWSER_ARGS,
         defaultViewport: DEFAULT_VIEWPORT,
         executablePath: localPath,
         headless: false,
-      });
+      }) as unknown as PuppeteerBrowser;
     } else {
       // 🔑 Vercel: 기존 프로세스 정리 후 재시도 로직
       await this.cleanupStaleChromium();
@@ -172,14 +187,14 @@ export class PuppeteerEngine implements IBrowserEngine {
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          this.browser = await puppeteer.default.launch({
+          this.browser = await puppeteerExtra.default.launch({
             args: [...chromium.args, "--hide-scrollbars", "--disable-web-security"],
             defaultViewport: VERCEL_VIEWPORT,
             executablePath: execPath,
             headless: chromium.headless,
             ignoreHTTPSErrors: true,
-          } as any);
-          console.log(`[PuppeteerEngine] 🚀 Chromium 시작 성공 (시도 ${attempt}/${MAX_RETRIES})`);
+          } as any) as unknown as PuppeteerBrowser;
+          console.log(`[PuppeteerEngine] 🚀 Chromium + Stealth 시작 성공 (시도 ${attempt}/${MAX_RETRIES})`);
           return; // 성공하면 즉시 반환
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
@@ -216,16 +231,27 @@ export class PuppeteerEngine implements IBrowserEngine {
     if (!this.browser) throw new Error("Browser not launched. Call launch() first.");
     const page = await this.browser.newPage();
 
-    // 🔑 Cloudflare / 봇 감지 우회를 위한 강화 스텔스 설정
+    // 🔑 Stealth 플러그인이 자동으로 처리하는 항목:
+    //   - navigator.webdriver 제거 (CDP 레벨)
+    //   - chrome.runtime / chrome.app 위장
+    //   - navigator.plugins / mimeTypes 위장
+    //   - WebGL vendor/renderer 위장
+    //   - iframe contentWindow 감지 우회
+    //   - permissions.query 위장
+    //   - canvas fingerprint 보호
+    //   - 등등...
+    //
+    // 아래는 Stealth가 커버하지 않는 **추가 보강** 설정만 적용
 
-    // 0) CDP 프로토콜로 webdriver 플래그 근본 제거 (JS 레벨보다 확실)
+    // 1) User-Agent — 최신 Chrome (headless 힌트 제거)
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    );
+
+    // 2) CDP로 User-Agent Client Hints 강화 (Stealth가 일부 커버하지만 추가 보강)
     const client = (page as any)._client?.();
     if (client) {
       try {
-        await client.send('Page.addScriptToEvaluateOnNewDocument', {
-          source: 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})',
-        });
-        // Headless 힌트 제거
         await client.send('Network.setUserAgentOverride', {
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
           acceptLanguage: 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -245,103 +271,15 @@ export class PuppeteerEngine implements IBrowserEngine {
           },
         });
       } catch (cdpErr) {
-        console.warn('[PuppeteerEngine] CDP 설정 실패 (비치명적):', cdpErr);
+        console.warn('[PuppeteerEngine] CDP UA override 실패 (비치명적):', cdpErr);
       }
     }
 
-    // 1) User-Agent — 최신 Chrome (Headless 힌트 없음)
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    );
-
-    // 2) navigator.webdriver 제거 + 브라우저 핑거프린트 위장 (강화 v2)
+    // 3) 추가 언어/네트워크 위장 (Stealth 보강)
     await page.evaluateOnNewDocument(`
-      // navigator.webdriver 제거 (다중 방어)
-      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      delete navigator.__proto__.webdriver;
-
-      // navigator.languages 설정
+      // navigator.languages 명시 설정
       Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
       Object.defineProperty(navigator, 'language', { get: () => 'ko-KR' });
-
-      // navigator.plugins 위장 (빈 배열이면 봇으로 감지)
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => {
-          const plugins = [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
-            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
-          ];
-          plugins.refresh = () => {};
-          plugins.item = (i) => plugins[i] || null;
-          plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
-          return plugins;
-        },
-      });
-
-      // navigator.mimeTypes 위장
-      Object.defineProperty(navigator, 'mimeTypes', {
-        get: () => {
-          const mimes = [
-            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
-          ];
-          mimes.item = (i) => mimes[i] || null;
-          mimes.namedItem = (name) => mimes.find(m => m.type === name) || null;
-          mimes.refresh = () => {};
-          return mimes;
-        },
-      });
-
-      // chrome 객체 위장 (더 정교하게)
-      window.chrome = {
-        runtime: {
-          onInstalled: { addListener: () => {} },
-          onMessage: { addListener: () => {} },
-          connect: () => {},
-          sendMessage: () => {},
-          id: undefined,
-        },
-        loadTimes: function() { return {}; },
-        csi: function() { return {}; },
-        app: {
-          isInstalled: false,
-          InstallState: { INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-          RunningState: { RUNNING: 'running', CANNOT_RUN: 'cannot_run' },
-          getDetails: () => null,
-          getIsInstalled: () => false,
-        },
-      };
-
-      // permissions.query 위장
-      const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters) =>
-        parameters.name === 'notifications'
-          ? Promise.resolve({ state: Notification.permission })
-          : originalQuery(parameters);
-
-      // WebGL 렌더러 위장
-      const getParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = function(parameter) {
-        if (parameter === 37445) return 'Intel Inc.';
-        if (parameter === 37446) return 'Intel Iris OpenGL Engine';
-        return getParameter.call(this, parameter);
-      };
-
-      // WebGL2 렌더러도 위장
-      if (typeof WebGL2RenderingContext !== 'undefined') {
-        const getParameter2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = function(parameter) {
-          if (parameter === 37445) return 'Intel Inc.';
-          if (parameter === 37446) return 'Intel Iris OpenGL Engine';
-          return getParameter2.call(this, parameter);
-        };
-      }
-
-      // iframe contentWindow 감지 우회 (Cloudflare가 이를 통해 headless 확인)
-      const originalAttachShadow = Element.prototype.attachShadow;
-      Element.prototype.attachShadow = function() {
-        return originalAttachShadow.apply(this, arguments);
-      };
 
       // connection / rtt 네트워크 정보 위장
       if (navigator.connection) {
@@ -351,32 +289,12 @@ export class PuppeteerEngine implements IBrowserEngine {
       // hardwareConcurrency & deviceMemory 위장
       Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
       Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-
-      // Notification 위장
-      if (typeof Notification === 'undefined') {
-        window.Notification = { permission: 'default' };
-      }
-
-      // canvas fingerprint 노이즈 (Cloudflare canvas 감지 대응)
-      const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-      HTMLCanvasElement.prototype.toDataURL = function(type) {
-        if (type === 'image/png' || !type) {
-          const ctx = this.getContext('2d');
-          if (ctx && this.width > 0 && this.height > 0) {
-            const style = ctx.fillStyle;
-            ctx.fillStyle = 'rgba(255,255,255,0.01)';
-            ctx.fillRect(0, 0, 1, 1);
-            ctx.fillStyle = style;
-          }
-        }
-        return originalToDataURL.apply(this, arguments);
-      };
     `);
 
-    // 3) CSP 우회 — 외부 이미지 인젝션 허용
+    // 4) CSP 우회 — 외부 이미지 인젝션 허용
     await page.setBypassCSP(true);
 
-    // 4) Extra HTTP 헤더 설정 (Cloudflare 검사용) — 강화
+    // 5) Extra HTTP 헤더 설정
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
