@@ -2,17 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // 캡처 엔진에서 사용하는 네이티브 모듈 번들 제외
-  serverExternalPackages: [
-    "puppeteer-core",
-    "puppeteer-extra",
-    "puppeteer-extra-plugin-stealth",
-    "puppeteer-extra-plugin",
-    "merge-deep",
-    "clone-deep",
-    "is-plain-object",
-    "@sparticuz/chromium-min",
-    "sharp",
-  ],
+  serverExternalPackages: ["puppeteer-core", "@sparticuz/chromium-min", "sharp"],
 };
 
 export default nextConfig;
