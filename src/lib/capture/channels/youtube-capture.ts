@@ -47,6 +47,24 @@ async function imageUrlToDataUrl(imageUrl: string): Promise<{ dataUrl: string; s
   }
 }
 
+/** YouTube URL에서 Video ID 추출 */
+function extractVideoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('youtube.com') && u.pathname === '/watch') return u.searchParams.get('v');
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1);
+    if (u.pathname.startsWith('/embed/')) return u.pathname.split('/embed/')[1]?.split('?')[0] || null;
+    // 라이브 URL: youtube.com/live/VIDEO_ID
+    if (u.pathname.startsWith('/live/')) return u.pathname.split('/live/')[1]?.split('?')[0] || null;
+    return null;
+  } catch { return null; }
+}
+
+/** YouTube 썸네일 URL 생성 (공개 API, 인증 불필요) */
+function getThumbnailUrl(videoId: string): string {
+  return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+}
+
 export class YouTubeCapture extends BaseChannel {
   private diagnostics: YouTubeDiagnostics | null = null;
 
@@ -76,6 +94,24 @@ export class YouTubeCapture extends BaseChannel {
     const { dataUrl: creativeDataUrl, sizeKB, ok } = await imageUrlToDataUrl(request.creativeUrl);
     this.diagnostics.creativeDownloaded = ok;
     this.diagnostics.creativeBase64Size = sizeKB;
+
+    // 1.5) 🖼️ 비디오 ID 추출 + 썸네일 준비
+    const videoId = extractVideoId(request.publisherUrl);
+    let thumbnailDataUrl: string | null = null;
+    if (videoId) {
+      const thumbResult = await imageUrlToDataUrl(getThumbnailUrl(videoId));
+      if (thumbResult.ok) {
+        thumbnailDataUrl = thumbResult.dataUrl;
+        console.log(`[YouTube] 🖼️ 썸네일 다운로드 성공 (${thumbResult.sizeKB}KB)`);
+      } else {
+        // fallback: hqdefault
+        const fallback = await imageUrlToDataUrl(`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`);
+        if (fallback.ok) {
+          thumbnailDataUrl = fallback.dataUrl;
+          console.log(`[YouTube] 🖼️ 썸네일 폴백(hqdefault) 성공`);
+        }
+      }
+    }
 
     // 2) 🍪 쿠키 동의 사전 처리 — CONSENT 쿠키 설정
     console.log(`[YouTube] 🍪 쿠키 동의 사전 처리 시작`);
@@ -162,35 +198,15 @@ export class YouTubeCapture extends BaseChannel {
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    // 🔑 4.7) 봇 감지 메시지 확인 + embed URL 폴백
+    // 🔑 4.7) 봇 감지 메시지 확인 + 썸네일 폴백
     const botDetected = await this.checkBotDetection(page);
 
-    if (botDetected) {
-      console.log(`[YouTube] 🤖 봇 감지 탐지됨 — embed URL 폴백 시도`);
-
-      // embed URL로 전환 (봇 감지가 훨씬 느슨함)
-      const embedUrl = this.convertToEmbedUrl(targetUrl);
-      if (embedUrl) {
-        console.log(`[YouTube] 🔄 embed URL로 전환: ${embedUrl}`);
-        await page.goto(embedUrl, { waitUntil: "networkidle2", timeout: 45000 });
-        await new Promise((r) => setTimeout(r, 3000));
-
-        // embed에서도 봇 감지가 뜨는지 확인
-        const embedBotDetected = await this.checkBotDetection(page);
-        if (embedBotDetected) {
-          console.warn(`[YouTube] ⚠️ embed에서도 봇 감지 — 원본 URL로 복원 후 강제 정리`);
-          await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 45000 });
-          await new Promise((r) => setTimeout(r, 2000));
-        } else {
-          console.log(`[YouTube] ✅ embed URL에서 봇 감지 우회 성공`);
-          // embed 모드에서는 전체 YouTube 레이아웃이 없으므로
-          // 원본 페이지로 돌아가서 영상 영역만 embed iframe으로 교체
-          await page.goto(targetUrl, { waitUntil: "networkidle2", timeout: 45000 });
-          await new Promise((r) => setTimeout(r, 2000));
-          await this.replacePlayerWithEmbed(page, embedUrl);
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-      }
+    if (botDetected && thumbnailDataUrl) {
+      console.log(`[YouTube] 🤖 봇 감지 탐지됨 — 썸네일 이미지로 비디오 영역 교체`);
+      await this.replacePlayerWithThumbnail(page, thumbnailDataUrl);
+      await new Promise((r) => setTimeout(r, 1000));
+    } else if (botDetected) {
+      console.warn(`[YouTube] 🤖 봇 감지 + 썸네일 없음 — 봇 메시지만 숨김 처리`);
     }
 
     // 5) 영상 일시정지 (깨끗한 스크린샷을 위해)
@@ -733,7 +749,7 @@ export class YouTubeCapture extends BaseChannel {
     }
   }
 
-  /** 🔤 한글 폰트 주입 — Vercel 서버리스 Chromium에 CJK 폰트 없는 문제 해결 */
+  /** 🔤 한글 폰트 주입 — Vercel 서버리스 Chromium에 CJK 폰트 없는 문제 해결 (강화 v2) */
   private async injectKoreanFonts(page: IPageHandle): Promise<void> {
     try {
       await page.evaluate<void>(`
@@ -741,37 +757,70 @@ export class YouTubeCapture extends BaseChannel {
           // 이미 주입됐으면 스킵
           if (document.querySelector('#admate-korean-fonts')) return;
 
-          // Google Fonts 로드 (Noto Sans KR + Roboto)
+          // 1) Google Fonts preconnect (속도 향상)
+          const preconnect = document.createElement('link');
+          preconnect.rel = 'preconnect';
+          preconnect.href = 'https://fonts.gstatic.com';
+          preconnect.crossOrigin = 'anonymous';
+          document.head.appendChild(preconnect);
+
+          // 2) Google Fonts CSS 로드 (Noto Sans KR + Roboto)
           const link = document.createElement('link');
           link.id = 'admate-korean-fonts';
           link.rel = 'stylesheet';
           link.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Roboto:wght@300;400;500;700&display=swap';
           document.head.appendChild(link);
 
-          // 전체 페이지에 폰트 강제 적용
+          // 3) 전체 페이지에 폰트 강제 적용 (더 공격적인 셀렉터)
           const style = document.createElement('style');
           style.id = 'admate-korean-fonts-style';
-          style.textContent = \`
-            * {
-              font-family: 'Roboto', 'Noto Sans KR', 'YouTube Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif !important;
-            }
-            /* YouTube 특정 요소에도 적용 */
-            ytd-watch-flexy, ytd-compact-video-renderer, #title, #video-title,
-            #description, #info, .ytd-video-primary-info-renderer,
-            .ytd-video-secondary-info-renderer, #content-text,
-            yt-formatted-string, span.yt-core-attributed-string {
-              font-family: 'Roboto', 'Noto Sans KR', sans-serif !important;
-            }
-          \`;
+          style.textContent = [
+            '*, *::before, *::after {',
+            "  font-family: 'Noto Sans KR', 'Roboto', 'YouTube Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif !important;",
+            '}',
+            '/* YouTube 모든 텍스트 요소 */',
+            'ytd-watch-flexy, ytd-watch-flexy *, ytd-compact-video-renderer, ytd-compact-video-renderer *,',
+            '#title, #video-title, #description, #info-contents, #info, #meta,',
+            '.ytd-video-primary-info-renderer, .ytd-video-secondary-info-renderer,',
+            '#content-text, yt-formatted-string, span.yt-core-attributed-string,',
+            '#owner-name, #channel-name, #subscriber-count, .ytd-channel-name,',
+            '#count .ytd-video-primary-info-renderer, #date,',
+            'ytd-comment-renderer, #content-text.ytd-comment-renderer,',
+            'h1.ytd-watch-metadata, h1 yt-formatted-string,',
+            '#secondary *, ytd-compact-video-renderer .details *,',
+            'ytd-video-renderer *, ytd-grid-video-renderer *,',
+            '.ytp-videowall-still-info-content *, .ytp-ce-element *,',
+            '#chat-messages *, yt-live-chat-text-message-renderer * {',
+            "  font-family: 'Noto Sans KR', 'Roboto', sans-serif !important;",
+            '}',
+          ].join('\\n');
           document.head.appendChild(style);
 
-          console.log('[YouTube Inject] 🔤 한글 폰트 주입 완료');
+          console.log('[YouTube Inject] 🔤 한글 폰트 CSS 주입 완료');
         })()
       `);
 
-      // 폰트 로드 대기
-      await new Promise((r) => setTimeout(r, 1500));
-      console.log(`[YouTube] 🔤 한글 폰트 인젝션 완료`);
+      // 4) document.fonts.ready로 확실히 폰트 로드 대기 (최대 5초)
+      const fontLoaded = await page.evaluate<boolean>(`
+        (() => {
+          return new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve(false), 5000);
+            document.fonts.ready.then(() => {
+              clearTimeout(timeout);
+              // 추가로 Noto Sans KR이 로드됐는지 확인
+              const loaded = document.fonts.check('16px Noto Sans KR');
+              resolve(loaded);
+            }).catch(() => resolve(false));
+          });
+        })()
+      `);
+
+      if (fontLoaded) {
+        console.log(`[YouTube] 🔤 한글 폰트 로드 확인 완료 ✅`);
+      } else {
+        console.warn(`[YouTube] 🔤 한글 폰트 로드 대기 타임아웃 — 추가 대기 3초`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
     } catch (err) {
       console.warn(`[YouTube] 🔤 한글 폰트 인젝션 실패 (진행 계속):`, err);
     }
@@ -876,6 +925,129 @@ export class YouTubeCapture extends BaseChannel {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * 🖼️ YouTube 비디오 플레이어를 썸네일 이미지로 교체
+   * 봇 감지로 영상이 재생 불가할 때, 썸네일로 대체하여
+   * 실제 영상이 보이는 것처럼 표시
+   */
+  private async replacePlayerWithThumbnail(page: IPageHandle, thumbnailDataUrl: string): Promise<void> {
+    console.log(`[YouTube] 🖼️ 플레이어를 썸네일 이미지로 교체 중...`);
+
+    await page.evaluate<void>(`
+      ((thumbSrc) => {
+        // 플레이어 컨테이너 찾기
+        const playerSelectors = [
+          '#movie_player',
+          '#player-container-inner',
+          'ytd-player',
+          '.html5-video-player',
+        ];
+
+        let playerEl = null;
+        for (const sel of playerSelectors) {
+          const el = document.querySelector(sel);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 100 && r.height > 100) {
+              playerEl = el;
+              break;
+            }
+          }
+        }
+
+        if (!playerEl) {
+          console.warn('[YouTube Thumbnail] 플레이어를 찾을 수 없음');
+          return;
+        }
+
+        const rect = playerEl.getBoundingClientRect();
+        const w = Math.round(rect.width);
+        const h = Math.round(rect.height);
+
+        // 기존 플레이어 내용물 모두 제거
+        playerEl.innerHTML = '';
+
+        // 썸네일 이미지로 교체
+        playerEl.style.cssText = [
+          'position: relative !important',
+          'overflow: hidden !important',
+          'background: #000 !important',
+          'width: ' + w + 'px !important',
+          'height: ' + h + 'px !important',
+        ].join(';');
+
+        // 썸네일 이미지 삽입
+        const img = document.createElement('img');
+        img.src = thumbSrc;
+        img.style.cssText = [
+          'width: 100% !important',
+          'height: 100% !important',
+          'object-fit: cover !important',
+          'display: block !important',
+          'position: absolute !important',
+          'top: 0 !important',
+          'left: 0 !important',
+        ].join(';');
+        playerEl.appendChild(img);
+
+        // 영상 재생 중인 것처럼 보이는 UI 추가 (하단 진행바)
+        const progressBar = document.createElement('div');
+        progressBar.style.cssText = [
+          'position: absolute !important',
+          'bottom: 0 !important',
+          'left: 0 !important',
+          'width: 100% !important',
+          'height: 4px !important',
+          'background: rgba(255,255,255,0.3) !important',
+          'z-index: 100 !important',
+        ].join(';');
+
+        const progressFill = document.createElement('div');
+        progressFill.style.cssText = [
+          'width: 15% !important',
+          'height: 100% !important',
+          'background: #ff0000 !important',
+          'border-radius: 0 2px 2px 0 !important',
+        ].join(';');
+        progressBar.appendChild(progressFill);
+        playerEl.appendChild(progressBar);
+
+        // 봇 감지 관련 오버레이 모두 제거
+        const removeSelectors = [
+          '.ytp-error',
+          '.ytp-error-content',
+          '.ytp-error-content-wrap',
+          'ytd-enforcement-message-view-model',
+          '.ytp-offline-slate',
+          '.ytp-offline-slate-bar',
+          '.ytp-error-content-wrap-reason',
+        ];
+        removeSelectors.forEach(sel => {
+          document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+
+        // body 전체에서도 봇 관련 텍스트 요소 숨김
+        document.querySelectorAll('*').forEach(el => {
+          const text = el.textContent || '';
+          if (
+            (text.includes('봇이 아님을 확인') || text.includes('로그인하여 봇이 아님') ||
+             text.includes('Confirm you') || text.includes('Sign in to confirm'))
+          ) {
+            const inPlayer = el.closest('#movie_player, #player-container-inner, .html5-video-player, ytd-player');
+            if (inPlayer) {
+              el.style.display = 'none';
+              el.style.visibility = 'hidden';
+            }
+          }
+        });
+
+        console.log('[YouTube Thumbnail] ✅ 플레이어 썸네일 교체 완료 (' + w + 'x' + h + ')');
+      })(${JSON.stringify(thumbnailDataUrl)})
+    `);
+
+    console.log(`[YouTube] 🖼️ 썸네일 교체 완료`);
   }
 
   /**
