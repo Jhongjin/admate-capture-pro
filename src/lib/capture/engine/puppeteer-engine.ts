@@ -617,7 +617,48 @@ export class PuppeteerEngine implements IBrowserEngine {
       'upgrade-insecure-requests': '1',
     });
 
-    return new PuppeteerPageHandle(page);
+    // 5) 🔤 한글 폰트 자동 주입 — Vercel 서버리스 Chromium에 CJK 폰트 없는 문제 해결
+  //    evaluateOnNewDocument로 페이지 로드 전에 주입 → 폰트가 먼저 로드됨
+  await page.evaluateOnNewDocument(`
+    (() => {
+      // DOM이 준비되면 폰트 주입
+      const injectFonts = () => {
+        if (document.querySelector('#admate-cjk-fonts')) return;
+
+        // preconnect
+        const preconnect = document.createElement('link');
+        preconnect.rel = 'preconnect';
+        preconnect.href = 'https://fonts.gstatic.com';
+        preconnect.crossOrigin = 'anonymous';
+        document.head.appendChild(preconnect);
+
+        // Google Fonts CSS
+        const link = document.createElement('link');
+        link.id = 'admate-cjk-fonts';
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Roboto:wght@300;400;500;700&display=swap';
+        document.head.appendChild(link);
+
+        // 전체 페이지에 폰트 강제 적용
+        const style = document.createElement('style');
+        style.id = 'admate-cjk-fonts-style';
+        style.textContent = [
+          '*, *::before, *::after {',
+          "  font-family: 'Noto Sans KR', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif !important;",
+          '}',
+        ].join('\\n');
+        document.head.appendChild(style);
+      };
+
+      if (document.head) {
+        injectFonts();
+      } else {
+        document.addEventListener('DOMContentLoaded', injectFonts);
+      }
+    })()
+  `);
+
+  return new PuppeteerPageHandle(page);
   }
 
   async close(): Promise<void> {

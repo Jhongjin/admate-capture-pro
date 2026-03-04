@@ -80,7 +80,17 @@ export async function POST(request: NextRequest) {
           }
 
           // 4) 매체별 캡처 채널 생성 (공유 엔진 전달)
-          const channel = createChannel(capture.channel as ChannelType, sharedEngine);
+          //    🔑 YouTube URL 자동 감지: channel이 "gdn"이어도 URL이 YouTube이면 자동 전환
+          let resolvedChannel = capture.channel as ChannelType;
+          const sourceUrl = capture.source_url ?? "";
+          if (
+            resolvedChannel !== "youtube" &&
+            (sourceUrl.includes("youtube.com") || sourceUrl.includes("youtu.be"))
+          ) {
+            console.log(`[Execute] 🔄 YouTube URL 감지 → 채널 자동 전환: ${resolvedChannel} → youtube`);
+            resolvedChannel = "youtube";
+          }
+          const channel = createChannel(resolvedChannel, sharedEngine);
 
           // 5) 캡처 실행
           const captureMetadata = (capture as any).metadata ?? {};
