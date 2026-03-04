@@ -89,6 +89,27 @@ export class GdnCapture extends BaseChannel {
       timeout: 45000,
     });
 
+    // 2.0) 🔤 한글 폰트 로딩 대기 (Vercel 서버리스 Chromium에 CJK 폰트 없음)
+    //    PuppeteerEngine에서 evaluateOnNewDocument로 주입된 폰트가 로드될 시간 확보
+    await page.evaluate<void>(`
+      (async () => {
+        try {
+          await document.fonts.ready;
+          // 최대 3초 대기하며 Noto Sans KR 폰트 로딩 확인
+          const start = Date.now();
+          while (Date.now() - start < 3000) {
+            if (document.fonts.check('16px "Noto Sans KR"')) {
+              console.log('[GDN] ✅ 한글 폰트 로드 완료 (' + (Date.now() - start) + 'ms)');
+              break;
+            }
+            await new Promise(r => setTimeout(r, 200));
+          }
+        } catch(e) {
+          console.warn('[GDN] 폰트 대기 에러 (비치명적):', e);
+        }
+      })()
+    `);
+
     // 2.1) 🛡️ Cloudflare / 봇 감지 챌린지 대기
     const isBlocked = await this.waitForCloudflareClearance(page);
     if (isBlocked) {
