@@ -432,7 +432,7 @@ export class YouTubeCapture extends BaseChannel {
           const ph = playerRect ? Math.round(playerRect.height) : Math.round(window.innerHeight * 0.6);
 
           // ═══════════════════════════════════════════════════
-          // 메인 오버레이 (플레이어 전체를 덮음)
+          // 메인 오버레이 (플레이어 전체를 덮음 + 라운딩)
           // ═══════════════════════════════════════════════════
           const overlay = document.createElement('div');
           overlay.id = 'admate-preroll-overlay';
@@ -449,6 +449,7 @@ export class YouTubeCapture extends BaseChannel {
             'align-items: center',
             'justify-content: center',
             'overflow: hidden',
+            'border-radius: 12px',
           ].join(' !important;') + ' !important';
 
           // ─── 광고 소재 이미지 ───
@@ -510,44 +511,46 @@ export class YouTubeCapture extends BaseChannel {
           sponsorText.textContent = '스폰서 · advertiser.com';
           overlay.appendChild(sponsorText);
 
-          // ─── 우하단: "건너뛰기" 버튼 (실제 YouTube 스타일) ───
-          const skipBtn = document.createElement('div');
-          skipBtn.style.cssText = [
-            'position: absolute',
-            'bottom: 56px',
-            'right: 0',
-            'background: rgba(0,0,0,0.7)',
-            'color: #fff',
-            'font-size: 14px',
-            "font-family: 'Roboto',Arial,sans-serif",
-            'padding: 9px 14px 9px 16px',
-            'border-radius: 2px 0 0 2px',
-            'cursor: pointer',
-            'display: flex',
-            'align-items: center',
-            'gap: 8px',
-            'border-left: 3px solid rgba(255,255,255,0.9)',
-            'z-index: 10',
-          ].join(' !important;') + ' !important';
-          skipBtn.innerHTML = '건너뛰기 <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
-          overlay.appendChild(skipBtn);
-
           // ─── 하단: 노란색 프로그레스 바 ───
           const timerBg = document.createElement('div');
-          timerBg.style.cssText = 'position:absolute;bottom:0;left:0;width:100%;height:3px;background:rgba(255,255,255,0.15);z-index:10';
+          timerBg.style.cssText = 'position:absolute;bottom:0;left:0;width:100%;height:3px;background:rgba(255,255,255,0.15);z-index:10;border-radius:0 0 12px 12px';
           overlay.appendChild(timerBg);
 
           const timerBar = document.createElement('div');
-          timerBar.style.cssText = 'position:absolute;bottom:0;left:0;width:33%;height:3px;background:#f2bc42;z-index:11';
+          timerBar.style.cssText = 'position:absolute;bottom:0;left:0;width:33%;height:3px;background:#f2bc42;z-index:11;border-radius:0 0 0 12px';
           overlay.appendChild(timerBar);
 
-          // ─── 우하단 하위: 타이머 표시 ───
-          const timerText = document.createElement('div');
-          timerText.style.cssText = "position:absolute;bottom:10px;right:60px;font-size:11px;color:rgba(255,255,255,0.7);font-family:'Roboto',Arial,sans-serif;z-index:10";
-          timerText.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)" style="margin-right:4px;vertical-align:middle"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg>';
-          overlay.appendChild(timerText);
-
+          // body에 오버레이 추가
           document.body.appendChild(overlay);
+
+          // ═══════════════════════════════════════════════════
+          // 🔑 "건너뛰기" 버튼 — body에 별도 요소로 추가 (overflow:hidden 회피)
+          // ═══════════════════════════════════════════════════
+          const skipBtn = document.createElement('div');
+          skipBtn.id = 'admate-skip-btn';
+          skipBtn.setAttribute('data-injected', 'admate-youtube-preroll');
+          skipBtn.style.cssText = [
+            'position: fixed',
+            'top: ' + (py + ph - 80) + 'px',
+            'left: ' + (px + pw - 1) + 'px',
+            'transform: translateX(-100%)',
+            'background: rgba(0,0,0,0.75)',
+            'color: #fff',
+            'font-size: 15px',
+            "font-family: 'Roboto',Arial,sans-serif",
+            'font-weight: 500',
+            'padding: 10px 16px 10px 18px',
+            'border-radius: 4px 0 0 4px',
+            'cursor: pointer',
+            'display: flex',
+            'align-items: center',
+            'gap: 10px',
+            'border-left: 3px solid rgba(255,255,255,0.9)',
+            'z-index: 2147483647',
+            'letter-spacing: 0.3px',
+          ].join(' !important;') + ' !important';
+          skipBtn.innerHTML = '건너뛰기 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
+          document.body.appendChild(skipBtn);
 
           console.log('[YouTube Inject] ✅ 프리롤 인젝션 성공 (실제 YouTube 형태, ' + pw + 'x' + ph + ')');
           return true;
