@@ -341,14 +341,25 @@ export class YouTubeCapture extends BaseChannel {
     let injectionSuccess = false;
 
     switch (adType) {
-      case "preroll":
-        injectionSuccess = await this.injectPrerollAd(page, creativeDataUrl, playerInfo);
-        // 🎯 인스트림 광고 시 사이드바 컴패니언 배너도 동시 삽입 (실제 YouTube 동작)
+      case "preroll": {
+        // 🎬 인스트림 광고 옵션 추출
+        const instreamOpts = {
+          adTitle: (request.options?.adTitle as string) || '',
+          ctaText: (request.options?.ctaText as string) || '',
+          landingUrl: (request.options?.landingUrl as string) || request.clickUrl || '',
+          companionImageUrl: (request.options?.companionImageUrl as string) || '',
+        };
+        console.log(`[YouTube] 인스트림 옵션: title="${instreamOpts.adTitle}" cta="${instreamOpts.ctaText}" landing="${instreamOpts.landingUrl}"`);
+
+        injectionSuccess = await this.injectPrerollAd(page, creativeDataUrl, playerInfo, instreamOpts);
+        // 🎯 컴패니언 배너 동시 삽입
         if (injectionSuccess) {
-          const companionResult = await this.injectDisplayAd(page, creativeDataUrl);
-          console.log(`[YouTube] 컴패니언 배너: ${companionResult ? '✅ 동시 삽입 성공' : '⚠️ 삽입 실패 (무시)'}`);
+          const companionImg = instreamOpts.companionImageUrl || creativeDataUrl;
+          const companionResult = await this.injectDisplayAd(page, companionImg);
+          console.log(`[YouTube] 컴패니언 배너: ${companionResult ? '✅ 성공' : '⚠️ 실패'}`);
         }
         break;
+      }
       case "display":
         injectionSuccess = await this.injectDisplayAd(page, creativeDataUrl);
         break;
@@ -399,14 +410,29 @@ export class YouTubeCapture extends BaseChannel {
   private async injectPrerollAd(
     page: IPageHandle,
     imgDataUrl: string,
-    playerInfo: { found: boolean; width: number; height: number; top: number; left: number }
+    playerInfo: { found: boolean; width: number; height: number; top: number; left: number },
+    instreamOpts: { adTitle: string; ctaText: string; landingUrl: string; companionImageUrl: string } = { adTitle: '', ctaText: '', landingUrl: '', companionImageUrl: '' }
   ): Promise<boolean> {
-    console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작 (실제 YouTube 인스트림 형태)`);
+    console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작`);
+
+    // 랜딩 URL에서 도메인 추출
+    let landingDomain = 'advertiser.com';
+    try {
+      if (instreamOpts.landingUrl) {
+        landingDomain = new URL(instreamOpts.landingUrl).hostname.replace('www.', '');
+      }
+    } catch { /* ignore */ }
+
+    const adTitle = instreamOpts.adTitle || '광고주 사이트 방문';
+    const ctaText = instreamOpts.ctaText || '자세히 알아보기';
 
     const result = await page.evaluate<boolean>(`
       (() => {
         try {
           const imgUrl = ${JSON.stringify(imgDataUrl)};
+          const domainText = ${JSON.stringify(landingDomain)};
+          const titleText = ${JSON.stringify(adTitle)};
+          const ctaBtnText = ${JSON.stringify(ctaText)};
 
           // 플레이어 좌표 수집
           const playerSelectors = [
@@ -465,8 +491,9 @@ export class YouTubeCapture extends BaseChannel {
           adLabel.textContent = '광고';
           overlay.appendChild(adLabel);
 
-          // ─── 좌하단: 카드형 CTA (실제 YouTube 스타일) ───
-          // [썸네일] 상품명 / [CTA 버튼] / 스폰서 · URL
+          // ═══ 좌하단: CTA 카드 (실제 YouTube 동일) ═══
+          // [원형 아이콘] 광고제목    [흰색 CTA 버튼]
+          //              도메인
           const ctaCard = document.createElement('div');
           ctaCard.style.cssText = [
             'position: absolute',
@@ -474,41 +501,42 @@ export class YouTubeCapture extends BaseChannel {
             'left: 12px',
             'display: flex',
             'align-items: center',
-            'gap: 10px',
+            'gap: 12px',
             'background: rgba(0,0,0,0.75)',
-            'border-radius: 4px',
-            'padding: 8px 12px',
-            'max-width: 420px',
+            'border-radius: 8px',
+            'padding: 10px 14px',
+            'max-width: 460px',
             'z-index: 10',
+            'backdrop-filter: blur(4px)',
           ].join(' !important;') + ' !important';
 
-          // CTA 카드 썸네일 (소재 이미지의 작은 버전)
-          const ctaThumb = document.createElement('img');
-          ctaThumb.src = imgUrl;
-          ctaThumb.style.cssText = 'width:48px !important;height:48px !important;border-radius:4px !important;object-fit:cover !important;flex-shrink:0 !important';
-          ctaCard.appendChild(ctaThumb);
+          // 원형 아이콘
+          const ctaIcon = document.createElement('img');
+          ctaIcon.src = imgUrl;
+          ctaIcon.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important';
+          ctaCard.appendChild(ctaIcon);
 
-          // CTA 텍스트 영역
-          const ctaText = document.createElement('div');
-          ctaText.style.cssText = 'flex:1;min-width:0';
-          ctaText.innerHTML = [
-            "<div style=\\"font-size:13px;font-weight:500;color:#fff;font-family:'Roboto',Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\\">광고주 사이트 방문</div>",
-            "<div style=\\"font-size:11px;color:rgba(255,255,255,0.7);font-family:'Roboto',Arial,sans-serif;margin-top:2px;\\">스폰서 · advertiser.com</div>",
+          // 텍스트 영역 (광고제목 + 도메인)
+          const ctaTextDiv = document.createElement('div');
+          ctaTextDiv.style.cssText = 'flex:1;min-width:0';
+          ctaTextDiv.innerHTML = [
+            '<div style="font-size:14px;font-weight:600;color:#fff;font-family:Noto Sans KR,Roboto,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">' + titleText + '</div>',
+            '<div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:Noto Sans KR,Roboto,Arial,sans-serif;margin-top:2px;line-height:1.2">' + domainText + '</div>',
           ].join('');
-          ctaCard.appendChild(ctaText);
+          ctaCard.appendChild(ctaTextDiv);
 
-          // CTA 버튼 (파란색)
+          // ✅ CTA 버튼 (흰색 배경 + 검정 텍스트 + 라운드)
           const ctaBtn = document.createElement('div');
-          ctaBtn.style.cssText = "background:#3ea6ff;color:#0f0f0f;font-size:13px;font-weight:600;font-family:'Roboto',Arial,sans-serif;padding:6px 14px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0";
-          ctaBtn.textContent = '자세히 알아보기';
+          ctaBtn.style.cssText = "background:#fff;color:#0f0f0f;font-size:14px;font-weight:600;font-family:Noto Sans KR,Roboto,Arial,sans-serif;padding:8px 16px;border-radius:20px;white-space:nowrap;cursor:pointer;flex-shrink:0;letter-spacing:0.2px";
+          ctaBtn.textContent = ctaBtnText;
           ctaCard.appendChild(ctaBtn);
 
           overlay.appendChild(ctaCard);
 
-          // ─── 좌하단 하위: "스폰서 · URL" 텍스트 ───
+          // ─── 좌하단 하위: "스폰서 ⓘ 도메인" ───
           const sponsorText = document.createElement('div');
-          sponsorText.style.cssText = "position:absolute;bottom:30px;left:12px;font-size:11px;color:rgba(255,255,255,0.6);font-family:'Roboto',Arial,sans-serif;z-index:10";
-          sponsorText.textContent = '스폰서 · advertiser.com';
+          sponsorText.style.cssText = "position:absolute;bottom:28px;left:12px;font-size:11px;color:rgba(255,255,255,0.55);font-family:Noto Sans KR,Roboto,Arial,sans-serif;z-index:10;display:flex;align-items:center;gap:6px";
+          sponsorText.innerHTML = '<span>스폰서</span><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid rgba(255,255,255,0.4);border-radius:50%;font-size:9px">\u24d8</span><span>' + domainText + '</span>';
           overlay.appendChild(sponsorText);
 
           // ─── 하단: 노란색 프로그레스 바 ───
