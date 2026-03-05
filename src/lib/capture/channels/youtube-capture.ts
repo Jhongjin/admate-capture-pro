@@ -538,7 +538,7 @@ export class YouTubeCapture extends BaseChannel {
             'background: rgba(28,28,28,0.8)',
             'color: #fff',
             'font-size: 15px',
-            "font-family: 'Roboto',Arial,sans-serif",
+            "font-family: 'Noto Sans KR','Roboto',Arial,sans-serif",
             'font-weight: 500',
             'padding: 10px 20px',
             'border-radius: 24px',
@@ -550,7 +550,8 @@ export class YouTubeCapture extends BaseChannel {
             'letter-spacing: 0.3px',
             'backdrop-filter: blur(4px)',
           ].join(' !important;') + ' !important';
-          skipBtn.innerHTML = '건너뛰기 <svg width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
+          // 텍스트를 span으로 감싸서 폰트 렌더링 보장
+          skipBtn.innerHTML = '<span style="font-family:Noto Sans KR,Roboto,Arial,sans-serif !important;color:#fff !important;font-size:15px !important;font-weight:500 !important">건너뛰기</span> <svg width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
           document.body.appendChild(skipBtn);
 
           console.log('[YouTube Inject] ✅ 프리롤 인젝션 성공 (실제 YouTube 형태, ' + pw + 'x' + ph + ')');
