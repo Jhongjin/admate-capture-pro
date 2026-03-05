@@ -452,16 +452,16 @@ export class YouTubeCapture extends BaseChannel {
             'border-radius: 12px',
           ].join(' !important;') + ' !important';
 
-          // ─── 광고 소재 이미지 ───
+          // ─── 광고 소재 이미지 (화면 꽉 채움, 실제 YouTube처럼) ───
           const img = document.createElement('img');
           img.src = imgUrl;
           img.setAttribute('data-injected', 'admate');
-          img.style.cssText = 'max-width:100% !important;max-height:100% !important;object-fit:contain !important;display:block !important';
+          img.style.cssText = 'width:100% !important;height:100% !important;object-fit:cover !important;display:block !important;position:absolute !important;top:0 !important;left:0 !important';
           overlay.appendChild(img);
 
-          // ─── 좌상단: "광고" 라벨 (작고 심플) ───
+          // ─── 좌상단: "광고" 라벨 (실제 YouTube처럼 극히 미세하게) ───
           const adLabel = document.createElement('div');
-          adLabel.style.cssText = "position:absolute;top:8px;left:8px;color:rgba(255,255,255,0.9);font-size:11px;font-family:'Roboto',Arial,sans-serif;font-weight:400;letter-spacing:0.2px;z-index:10;text-shadow:0 1px 2px rgba(0,0,0,0.5)";
+          adLabel.style.cssText = "position:absolute;top:10px;left:10px;color:rgba(255,255,255,0.5);font-size:10px;font-family:'Roboto',Arial,sans-serif;font-weight:400;letter-spacing:0.2px;z-index:10";
           adLabel.textContent = '광고';
           overlay.appendChild(adLabel);
 
@@ -524,32 +524,33 @@ export class YouTubeCapture extends BaseChannel {
           document.body.appendChild(overlay);
 
           // ═══════════════════════════════════════════════════
-          // 🔑 "건너뛰기" 버튼 — body에 별도 요소로 추가 (overflow:hidden 회피)
+          // 🔑 "건너뛰기" 버튼 — 실제 YouTube 둥근 알약형 (pill shape)
+          //    body에 fixed로 배치 (오버레이 overflow:hidden 회피)
           // ═══════════════════════════════════════════════════
           const skipBtn = document.createElement('div');
           skipBtn.id = 'admate-skip-btn';
           skipBtn.setAttribute('data-injected', 'admate-youtube-preroll');
           skipBtn.style.cssText = [
             'position: fixed',
-            'top: ' + (py + ph - 80) + 'px',
-            'left: ' + (px + pw - 1) + 'px',
+            'top: ' + (py + ph - 90) + 'px',
+            'left: ' + (px + pw - 24) + 'px',
             'transform: translateX(-100%)',
-            'background: rgba(0,0,0,0.75)',
+            'background: rgba(28,28,28,0.8)',
             'color: #fff',
             'font-size: 15px',
             "font-family: 'Roboto',Arial,sans-serif",
             'font-weight: 500',
-            'padding: 10px 16px 10px 18px',
-            'border-radius: 4px 0 0 4px',
+            'padding: 10px 20px',
+            'border-radius: 24px',
             'cursor: pointer',
             'display: flex',
             'align-items: center',
             'gap: 10px',
-            'border-left: 3px solid rgba(255,255,255,0.9)',
             'z-index: 2147483647',
             'letter-spacing: 0.3px',
+            'backdrop-filter: blur(4px)',
           ].join(' !important;') + ' !important';
-          skipBtn.innerHTML = '건너뛰기 <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
+          skipBtn.innerHTML = '건너뛰기 <svg width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)"><path d="M5 18l10-6L5 6v12zm12-12v12h2V6h-2z"/></svg>';
           document.body.appendChild(skipBtn);
 
           console.log('[YouTube Inject] ✅ 프리롤 인젝션 성공 (실제 YouTube 형태, ' + pw + 'x' + ph + ')');
