@@ -550,9 +550,10 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
     ? filteredPresets
     : filteredPresets.slice(0, 6);
 
-  /** 폼 유효성 검증 */
+  /** 폼 유효성 검증 — YouTube 채널은 게재면 자동 지정 */
+  const isYouTubeChannel = form.channel === "youtube";
   const isFormValid =
-    form.selectedPublishers.length > 0 &&
+    (isYouTubeChannel || form.selectedPublishers.length > 0) &&
     form.creativeUrl &&
     isValidUrl(form.creativeUrl);
 
@@ -568,12 +569,17 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
     setIsSubmitting(true);
 
     try {
+      // 🎬 YouTube 채널인 경우 기본 게재면 URL 자동 지정
+      const publisherUrls = isYouTubeChannel && form.selectedPublishers.length === 0
+        ? ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+        : form.selectedPublishers;
+
       const res = await fetch("/api/captures", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channel: form.channel,
-          publisherUrls: form.selectedPublishers,
+          publisherUrls,
           creativeUrl: form.creativeUrl,
           clickUrl: form.clickUrl || undefined,
           captureLanding: form.captureLanding,
@@ -933,7 +939,35 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
         )}
 
         {/* ===== 게재면 URL (멀티 선택) ===== */}
-        <div className="mb-5">
+        {/* 🎬 YouTube 채널 선택 시 자동 게재면 안내 */}
+        {isYouTubeChannel && (
+          <div
+            className="mb-5 rounded-xl border p-4 animate-fade-in"
+            style={{
+              borderColor: "var(--color-accent)",
+              backgroundColor: "var(--color-accent-subtle)",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">▶️</span>
+              <div>
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--color-accent)" }}
+                >
+                  YouTube 자동 게재면
+                </p>
+                <p
+                  className="text-[11px] mt-0.5"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  YouTube 광고는 자동으로 YouTube 플레이어에서 캡처됩니다. 별도 게재면 선택이 필요 없습니다.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="mb-5" style={{ display: isYouTubeChannel ? "none" : undefined }}>
           <div className="flex items-center justify-between mb-2">
             <label className="form-label mb-0">
               게재면 (Publisher){" "}
