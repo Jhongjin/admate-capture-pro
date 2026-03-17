@@ -501,13 +501,12 @@ export class YouTubeCapture extends BaseChannel {
             'left: 12px',
             'display: flex',
             'align-items: center',
-            'gap: 12px',
-            'background: rgba(0,0,0,0.75)',
+            'gap: 10px',
+            'background: rgba(28,28,28,0.88)',
             'border-radius: 8px',
-            'padding: 10px 14px',
+            'padding: 8px 12px',
             'max-width: 460px',
             'z-index: 10',
-            'backdrop-filter: blur(4px)',
           ].join(' !important;') + ' !important';
 
           // 원형 아이콘
@@ -520,23 +519,23 @@ export class YouTubeCapture extends BaseChannel {
           const ctaTextDiv = document.createElement('div');
           ctaTextDiv.style.cssText = 'flex:1;min-width:0';
           ctaTextDiv.innerHTML = [
-            '<div style="font-size:14px;font-weight:600;color:#fff;font-family:Noto Sans KR,Roboto,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">' + titleText + '</div>',
-            '<div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:Noto Sans KR,Roboto,Arial,sans-serif;margin-top:2px;line-height:1.2">' + domainText + '</div>',
+            '<div style="font-size:13px;font-weight:400;color:#fff;font-family:Roboto,Noto Sans KR,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">' + titleText + '</div>',
+            '<div style="font-size:12px;color:rgba(255,255,255,0.7);font-family:Roboto,Noto Sans KR,Arial,sans-serif;margin-top:1px;line-height:1.2">' + domainText + '</div>',
           ].join('');
           ctaCard.appendChild(ctaTextDiv);
 
-          // ✅ CTA 버튼 (흰색 배경 + 검정 텍스트 + 라운드)
+          // ✅ CTA 버튼 (흰색 배경 + 검정 텍스트 + 라운드 — 실제 YouTube 동일)
           const ctaBtn = document.createElement('div');
-          ctaBtn.style.cssText = "background:#fff;color:#0f0f0f;font-size:14px;font-weight:600;font-family:Noto Sans KR,Roboto,Arial,sans-serif;padding:8px 16px;border-radius:20px;white-space:nowrap;cursor:pointer;flex-shrink:0;letter-spacing:0.2px";
+          ctaBtn.style.cssText = "background:#fff;color:#0f0f0f;font-size:14px;font-weight:500;font-family:Roboto,Noto Sans KR,Arial,sans-serif;padding:8px 16px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0;letter-spacing:0.1px";
           ctaBtn.textContent = ctaBtnText;
           ctaCard.appendChild(ctaBtn);
 
           overlay.appendChild(ctaCard);
 
-          // ─── 좌하단 하위: "스폰서 ⓘ 도메인" ───
+          // ─── 좌하단 하위: "스폰서 ⓘ 도메인" (실제 YouTube 동일 스타일) ───
           const sponsorText = document.createElement('div');
-          sponsorText.style.cssText = "position:absolute;bottom:28px;left:12px;font-size:11px;color:rgba(255,255,255,0.55);font-family:Noto Sans KR,Roboto,Arial,sans-serif;z-index:10;display:flex;align-items:center;gap:6px";
-          sponsorText.innerHTML = '<span>스폰서</span><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid rgba(255,255,255,0.4);border-radius:50%;font-size:9px">\u24d8</span><span>' + domainText + '</span>';
+          sponsorText.style.cssText = "position:absolute;bottom:28px;left:12px;font-size:12px;color:rgba(255,255,255,0.7);font-family:Roboto,Noto Sans KR,Arial,sans-serif;z-index:10;display:flex;align-items:center;gap:5px;font-weight:400";
+          sponsorText.innerHTML = '<span>스폰서</span><svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)" style="flex-shrink:0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span>' + domainText + '</span>';
           overlay.appendChild(sponsorText);
 
           // ─── 하단: 노란색 프로그레스 바 ───
@@ -656,40 +655,7 @@ export class YouTubeCapture extends BaseChannel {
           'position: relative !important',
         ].join(';');
 
-        // ─── "스폰서 광고" 헤더 + X 닫기 버튼 ───
-        const header = document.createElement('div');
-        header.style.cssText = [
-          'display: flex !important',
-          'align-items: center !important',
-          'justify-content: space-between !important',
-          'padding: 8px 12px !important',
-          'background: #fff !important',
-        ].join(';');
-
-        // 좌측: "스폰서 광고" 텍스트
-        const headerLeft = document.createElement('span');
-        headerLeft.style.cssText = "font-size:12px;color:#606060;font-family:'Noto Sans KR','Roboto',Arial,sans-serif;font-weight:400;letter-spacing:0.3px";
-        headerLeft.textContent = '스폰서 광고';
-
-        // 우측: ⓘ 아이콘 + X 닫기 버튼
-        const headerRight = document.createElement('div');
-        headerRight.style.cssText = 'display:flex;align-items:center;gap:8px';
-
-        // ⓘ 아이콘
-        const infoIcon = document.createElement('div');
-        infoIcon.style.cssText = 'width:16px;height:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-        infoIcon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#909090"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>';
-
-        // X 닫기 버튼
-        const closeBtn = document.createElement('div');
-        closeBtn.style.cssText = 'width:16px;height:16px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-        closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#909090"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-
-        headerRight.appendChild(infoIcon);
-        headerRight.appendChild(closeBtn);
-        header.appendChild(headerLeft);
-        header.appendChild(headerRight);
-        container.appendChild(header);
+        // ─── 상단 헤더 제거: 실제 YouTube 컴패니언 배너에는 "스폰서 광고" 헤더가 없음 ───
 
         // ─── 배너 이미지 (300x250 비율) ───
         const imgEl = document.createElement('img');
@@ -704,28 +670,27 @@ export class YouTubeCapture extends BaseChannel {
         ].join(';');
         container.appendChild(imgEl);
 
-        // ─── 하단 푸터: [파비콘] "광고주 사이트 방문" + "Ad · Sponsored" ───
+        // ─── 하단 푸터: [파비콘] "광고주 사이트 방문" + "스폰서 · domain" (실제 YouTube 동일) ───
         const footer = document.createElement('div');
         footer.style.cssText = [
-          'padding: 10px 12px !important',
+          'padding: 12px 12px !important',
           'display: flex !important',
           'align-items: center !important',
           'gap: 10px !important',
           'background: #fff !important',
-          'border-top: 1px solid #e5e5e5 !important',
         ].join(';');
 
         // 파비콘 (파란색 원형 아이콘)
         const favicon = document.createElement('div');
-        favicon.style.cssText = 'width:32px;height:32px;border-radius:50%;background:#065fd4;display:flex;align-items:center;justify-content:center;flex-shrink:0';
-        favicon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M19 19H5V5h7V3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
+        favicon.style.cssText = 'width:36px;height:36px;border-radius:50%;background:#065fd4;display:flex;align-items:center;justify-content:center;flex-shrink:0';
+        favicon.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M19 19H5V5h7V3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
 
-        // 텍스트 영역
+        // 텍스트 영역 (실제 YouTube: "광고주 사이트 방문" + "Ad · Sponsored")
         const textArea = document.createElement('div');
         textArea.style.cssText = 'flex:1;min-width:0';
         textArea.innerHTML = [
-          "<div style=\\"font-size:13px;font-weight:500;color:#0f0f0f;font-family:'Noto Sans KR','Roboto',Arial,sans-serif;\\">광고주 사이트 방문</div>",
-          "<div style=\\"font-size:12px;color:#606060;font-family:'Roboto',Arial,sans-serif;margin-top:2px;\\">Ad · Sponsored</div>",
+          "<div style=\\"font-size:14px;font-weight:400;color:#0f0f0f;font-family:Roboto,'Noto Sans KR',Arial,sans-serif;line-height:1.4\\">광고주 사이트 방문</div>",
+          "<div style=\\"font-size:12px;color:#606060;font-family:Roboto,Arial,sans-serif;margin-top:2px;\\">Ad · Sponsored</div>",
         ].join('');
 
         footer.appendChild(favicon);
