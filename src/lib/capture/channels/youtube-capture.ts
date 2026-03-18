@@ -494,6 +494,8 @@ export class YouTubeCapture extends BaseChannel {
           // ═══ 좌하단: CTA 카드 (실제 YouTube 동일) ═══
           // [원형 아이콘] 광고제목    [흰색 CTA 버튼]
           //              도메인
+          // 📌 Headless Chromium에서는 backdrop-filter가 미작동하므로
+          //    blur 없이 YouTube와 시각적으로 동일하게 보이도록 투명도 조정
           const ctaCard = document.createElement('div');
           ctaCard.style.cssText = [
             'position: absolute',
@@ -501,20 +503,18 @@ export class YouTubeCapture extends BaseChannel {
             'left: 12px',
             'display: flex',
             'align-items: center',
-            'gap: 10px',
-            'background: rgba(0,0,0,0.6)',
+            'gap: 8px',
+            'background: rgba(15,15,15,0.45)',
             'border-radius: 8px',
-            'padding: 8px 12px',
-            'max-width: 460px',
+            'padding: 6px 10px',
+            'max-width: 420px',
             'z-index: 10',
-            'backdrop-filter: blur(16px)',
-            '-webkit-backdrop-filter: blur(16px)',
           ].join(' !important;') + ' !important';
 
           // 원형 아이콘
           const ctaIcon = document.createElement('img');
           ctaIcon.src = imgUrl;
-          ctaIcon.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important';
+          ctaIcon.style.cssText = 'width:36px !important;height:36px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important';
           ctaCard.appendChild(ctaIcon);
 
           // 텍스트 영역 (광고제목 + 도메인)
@@ -526,9 +526,9 @@ export class YouTubeCapture extends BaseChannel {
           ].join('');
           ctaCard.appendChild(ctaTextDiv);
 
-          // ✅ CTA 버튼 (실제 YouTube: rgb(241,241,241) 배경 + 검정 텍스트 + 라운드)
+          // ✅ CTA 버튼 (실제 YouTube: ytp-ad-button-vm--style-filled-white)
           const ctaBtn = document.createElement('div');
-          ctaBtn.style.cssText = "background:#f1f1f1;color:#0f0f0f;font-size:14px;font-weight:500;font-family:Roboto,Noto Sans KR,Arial,sans-serif;padding:8px 16px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0;letter-spacing:0.1px";
+          ctaBtn.style.cssText = "background:#f1f1f1;color:#0f0f0f;font-size:14px;font-weight:500;font-family:Roboto,Noto Sans KR,Arial,sans-serif;padding:6px 12px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0";
           ctaBtn.textContent = ctaBtnText;
           ctaCard.appendChild(ctaBtn);
 
