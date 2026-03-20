@@ -538,10 +538,20 @@ export class YouTubeCapture extends BaseChannel {
           overlay.appendChild(ctaCard);
 
           // ─── 좌하단 하위: "스폰서 ⓘ 도메인" ───
-          // CTA 카드 (bottom:95px) 바로 아래에 배치
+          // YouTube 원본 DOM과 동일하게 컬러(#fff), 그림자, margin 적용
           const sponsorText = document.createElement('div');
-          sponsorText.style.cssText = "position:absolute;bottom:72px;left:22px;font-size:12px;color:rgba(255,255,255,0.7);font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;z-index:10;display:flex;align-items:center;gap:5px;font-weight:400";
-          sponsorText.innerHTML = '<span>스폰서</span><svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)" style="flex-shrink:0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span>' + domainText + '</span>';
+          sponsorText.style.cssText = "position:absolute;bottom:68px;left:22px;font-size:13px;color:#fff;font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;z-index:10;display:flex;align-items:center;font-weight:500;text-shadow:0 0 2px rgba(0,0,0,0.5)";
+          
+          sponsorText.innerHTML = [
+            '<span style="line-height:16px;">스폰서</span>',
+            '<span style="display:flex;align-items:center;margin:0 6px 0 4px;">',
+              '<svg fill="#fff" height="14px" viewBox="0 -960 960 960" width="14px" style="filter:drop-shadow(0px 0px 2px rgba(0,0,0,0.5));">',
+                '<path d="M430.09-270.8h101.34V-528H430.09v257.2Zm49.52-338.03q20.94 0 35.34-14.01 14.4-14.01 14.4-34.95 0-20.94-14.01-35.34-14.01-14.39-34.95-14.39-20.94 0-35.34 14.01-14.4 14.01-14.4 34.95 0 20.94 14.01 35.34 14.01 14.39 34.95 14.39Zm.67 548.18q-86.64 0-163.19-32.66-76.56-32.66-133.84-89.94t-89.94-133.8q-32.66-76.51-32.66-163.41 0-87.15 32.72-163.31t90.14-133.61q57.42-57.44 133.79-89.7 76.38-32.27 163.16-32.27 87.14 0 163.31 32.26 76.16 32.26 133.61 89.71 57.45 57.45 89.71 133.86 32.26 76.42 32.26 163.33 0 86.91-32.27 163.08-32.26 76.18-89.7 133.6-57.45 57.42-133.83 90.14-76.39 32.72-163.27 32.72Zm-.33-105.18q131.13 0 222.68-91.49 91.54-91.49 91.54-222.63 0-131.13-91.49-222.68-91.49-91.54-222.63-91.54-131.13 0-222.68 91.49-91.54 91.49-91.54 222.63 0 131.13 91.49 222.68 91.49 91.54 222.63 91.54ZM480-480Z"></path>',
+              '</svg>',
+            '</span>',
+            '<span style="line-height:16px;">' + domainText + '</span>'
+          ].join('');
+          
           overlay.appendChild(sponsorText);
 
           // ─── 하단: 노란색 프로그레스 바 ───
