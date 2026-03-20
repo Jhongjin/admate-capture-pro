@@ -50,6 +50,8 @@ export async function POST(request: NextRequest) {
       targetAdSizes?: string[];
       youtubeAdType?: "preroll" | "display" | "overlay";
       instreamOpts?: {
+        videoUrl?: string;
+        skipSeconds?: number;
         adTitle?: string;
         ctaText?: string;
         landingUrl?: string;
@@ -64,9 +66,13 @@ export async function POST(request: NextRequest) {
         ? [publisherUrl]
         : [];
 
-    if (!channel || urls.length === 0 || !creativeUrl) {
+    // 인스트림 광고는 creativeUrl 대신 videoUrl 사용
+    const isPreroll = channel === "youtube" && youtubeAdType === "preroll";
+    const hasSource = isPreroll ? !!instreamOpts?.videoUrl : !!creativeUrl;
+
+    if (!channel || urls.length === 0 || !hasSource) {
       return NextResponse.json(
-        { error: "channel, publisherUrl(s), creativeUrl는 필수입니다." },
+        { error: "channel, publisherUrl(s), creative/videoUrl은 필수입니다." },
         { status: 400 }
       );
     }

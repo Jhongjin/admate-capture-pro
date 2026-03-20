@@ -142,7 +142,11 @@ export class YouTubeCapture extends BaseChannel {
     }
 
     // 3) YouTube 페이지 로드
-    const targetUrl = request.publisherUrl;
+    const instreamOpts = (request.options?.instreamOpts as { videoUrl?: string; skipSeconds?: number } | undefined) || {};
+    const targetUrl = adType === "preroll" && instreamOpts.videoUrl 
+      ? instreamOpts.videoUrl 
+      : request.publisherUrl;
+
     await page.goto(targetUrl, {
       waitUntil: "networkidle2",
       timeout: 45000,
@@ -209,7 +213,23 @@ export class YouTubeCapture extends BaseChannel {
       console.warn(`[YouTube] 🤖 봇 감지 + 썸네일 없음 — 봇 메시지만 숨김 처리`);
     }
 
-    // 5) 영상 일시정지 (깨끗한 스크린샷을 위해)
+    // 5) 비디오 시간 스킵 (preroll 중 videoUrl 모드일 때만)
+    if (adType === "preroll" && instreamOpts.skipSeconds !== undefined) {
+      const skipSecs = instreamOpts.skipSeconds as number;
+      console.log(`[YouTube] ⏰ 인스트림 영상 ${skipSecs}초 스킵 중...`);
+      await page.evaluate((secVal: unknown) => {
+        const secs = secVal as number;
+        try {
+          const video = document.querySelector('video.html5-main-video') as HTMLVideoElement;
+          if (video) video.currentTime = secs;
+        } catch (e) {
+          console.error('[YouTube] Video seek failed', e);
+        }
+      }, skipSecs);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    // 5.5) 영상 일시정지 (깨끗한 스크린샷을 위해)
     await this.pauseVideo(page);
     await new Promise((r) => setTimeout(r, 1000));
 
@@ -411,7 +431,7 @@ export class YouTubeCapture extends BaseChannel {
     page: IPageHandle,
     imgDataUrl: string,
     playerInfo: { found: boolean; width: number; height: number; top: number; left: number },
-    instreamOpts: { adTitle: string; ctaText: string; landingUrl: string; companionImageUrl: string } = { adTitle: '', ctaText: '', landingUrl: '', companionImageUrl: '' }
+    instreamOpts: { adTitle?: string; ctaText?: string; landingUrl?: string; skipSeconds?: number; companionImageUrl?: string } = {}
   ): Promise<boolean> {
     console.log(`[YouTube] 🎬 프리롤 광고 인젝션 시작`);
 
@@ -463,27 +483,19 @@ export class YouTubeCapture extends BaseChannel {
           const overlay = document.createElement('div');
           overlay.id = 'admate-preroll-overlay';
           overlay.setAttribute('data-injected', 'admate-youtube-preroll');
-          overlay.style.cssText = [
-            'position: fixed',
-            'top: ' + py + 'px',
-            'left: ' + px + 'px',
-            'width: ' + pw + 'px',
-            'height: ' + ph + 'px',
-            'z-index: 2147483647',
-            'background: #000',
-            'display: flex',
-            'align-items: center',
-            'justify-content: center',
-            'overflow: hidden',
-            'border-radius: 12px',
           ].join(' !important;') + ' !important';
 
-          // ─── 광고 소재 이미지 (화면 꽉 채움, 실제 YouTube처럼) ───
-          const img = document.createElement('img');
-          img.src = imgUrl;
-          img.setAttribute('data-injected', 'admate');
-          img.style.cssText = 'width:100% !important;height:100% !important;object-fit:cover !important;display:block !important;position:absolute !important;top:0 !important;left:0 !important';
-          overlay.appendChild(img);
+          // ─── 광고 소재 이미지 (존재할 경우 화면 꽉 채움) ───
+          if (imgUrl) {
+            overlay.style.background = '#000 !important';
+            const img = document.createElement('img');
+            img.src = imgUrl;
+            img.setAttribute('data-injected', 'admate');
+            img.style.cssText = 'width:100% !important;height:100% !important;object-fit:cover !important;display:block !important;position:absolute !important;top:0 !important;left:0 !important';
+            overlay.appendChild(img);
+          } else {
+            overlay.style.background = 'transparent !important';
+          }
 
           // ─── 좌상단: "광고" 라벨 (실제 YouTube처럼 극히 미세하게) ───
           const adLabel = document.createElement('div');
@@ -514,10 +526,18 @@ export class YouTubeCapture extends BaseChannel {
           ].join(' !important;') + ' !important';
 
           // 원형 아이콘 (ytp-ad-avatar--size-m = 40px)
-          const ctaIcon = document.createElement('img');
-          ctaIcon.src = imgUrl;
-          ctaIcon.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important;margin-right:12px !important';
-          ctaCard.appendChild(ctaIcon);
+          if (imgUrl) {
+            const ctaIcon = document.createElement('img');
+            ctaIcon.src = imgUrl;
+            ctaIcon.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important;margin-right:12px !important';
+            ctaCard.appendChild(ctaIcon);
+          } else {
+            // 이미지가 없으면 기본 아이콘 표시 (사용자 아바타 느낌)
+            const ctaIconFallback = document.createElement('div');
+            ctaIconFallback.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;background:#555 !important;display:flex;align-items:center;justify-content:center;flex-shrink:0 !important;margin-right:12px !important;color:#fff;font-size:20px;';
+            ctaIconFallback.textContent = titleText.charAt(0) || '선';
+            ctaCard.appendChild(ctaIconFallback);
+          }
 
           // 텍스트 영역 (광고제목 + 도메인)
           const ctaTextDiv = document.createElement('div');

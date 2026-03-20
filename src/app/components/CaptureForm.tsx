@@ -311,6 +311,8 @@ interface CaptureFormData {
   targetAdSizes: string[]; // 수동 모드에서 선택한 사이즈 (예: ["300x250", "728x90"])
   youtubeAdType: YouTubeAdType; // YouTube 광고 유형
   // 🎬 인스트림 광고 옵션
+  instreamVideoUrl: string; // YouTube 동영상 URL
+  instreamSkipSeconds: string; // 정지할 초수
   instreamAdTitle: string;
   instreamCtaText: string;
   instreamLandingUrl: string;
@@ -361,6 +363,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
     adSizeMode: "auto",
     targetAdSizes: [],
     youtubeAdType: "preroll",
+    instreamVideoUrl: "",
+    instreamSkipSeconds: "5",
     instreamAdTitle: "",
     instreamCtaText: "",
     instreamLandingUrl: "",
@@ -552,10 +556,15 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
 
   /** 폼 유효성 검증 — YouTube 채널은 게재면 자동 지정 */
   const isYouTubeChannel = form.channel === "youtube";
+  const isYoutubeInstream = isYouTubeChannel && form.youtubeAdType === "preroll";
+  
+  const hasValidSource = isYoutubeInstream
+    ? form.instreamVideoUrl && isValidUrl(form.instreamVideoUrl)
+    : form.creativeUrl && isValidUrl(form.creativeUrl);
+
   const isFormValid =
     (isYouTubeChannel || form.selectedPublishers.length > 0) &&
-    form.creativeUrl &&
-    isValidUrl(form.creativeUrl);
+    hasValidSource;
 
   /** 폼 제출 */
   const handleSubmit = async (e: React.FormEvent) => {
@@ -600,6 +609,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
           instreamOpts:
             form.channel === "youtube" && form.youtubeAdType === "preroll"
               ? {
+                  videoUrl: form.instreamVideoUrl || undefined,
+                  skipSeconds: parseInt(form.instreamSkipSeconds) || 5,
                   adTitle: form.instreamAdTitle || undefined,
                   ctaText: form.instreamCtaText || undefined,
                   landingUrl: form.instreamLandingUrl || undefined,
@@ -630,6 +641,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
         creativeUrl: "",
         clickUrl: "",
         captureLanding: false,
+        instreamVideoUrl: "",
+        instreamSkipSeconds: "5",
         instreamAdTitle: "",
         instreamCtaText: "",
         instreamLandingUrl: "",
@@ -813,6 +826,63 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
                 </p>
 
                 <div className="space-y-3">
+                  {/* 영상 원본 URL */}
+                  <div>
+                    <label
+                      className="text-[11px] font-medium mb-1 block"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      ▶️ 광고 동영상 원본 URL <span style={{ color: "var(--color-error)" }}>*</span>
+                    </label>
+                    <input
+                      type="url"
+                      className="form-input"
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      value={form.instreamVideoUrl}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          instreamVideoUrl: e.target.value,
+                        }))
+                      }
+                    />
+                    <p
+                      className="text-[10px] mt-0.5"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      실제로 인스트림 광고 형태로 재생될 YouTube 영상의 URL입니다.
+                    </p>
+                  </div>
+
+                  {/* 캡처를 원하는 시간(초) */}
+                  <div>
+                    <label
+                      className="text-[11px] font-medium mb-1 block"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      ⏰ 캡처 시점 (초) <span style={{ color: "var(--color-error)" }}>*</span>
+                    </label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      placeholder="예: 5"
+                      min="0"
+                      value={form.instreamSkipSeconds}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          instreamSkipSeconds: e.target.value,
+                        }))
+                      }
+                    />
+                    <p
+                      className="text-[10px] mt-0.5"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      해당 초수에서 정지된 화면으로 캡처됩니다. (기본 5초)
+                    </p>
+                  </div>
+
                   {/* 광고 제목 */}
                   <div>
                     <label
@@ -1281,7 +1351,8 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
           )}
         </div>
 
-        {/* ===== 소재 이미지 ===== */}
+        {/* ===== 소재 이미지 (인스트림 모드일 때에는 숨김) ===== */}
+        {!isYoutubeInstream && (
         <div className="mb-5">
           <div className="flex items-center justify-between mb-2">
             <label className="form-label mb-0">
@@ -1828,6 +1899,7 @@ export default function CaptureForm({ onCaptureCreated }: CaptureFormProps) {
             )}
           </div>
         </div>
+        )}
 
         {/* 구분선 */}
         <div
