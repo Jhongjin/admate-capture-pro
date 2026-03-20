@@ -483,6 +483,18 @@ export class YouTubeCapture extends BaseChannel {
           const overlay = document.createElement('div');
           overlay.id = 'admate-preroll-overlay';
           overlay.setAttribute('data-injected', 'admate-youtube-preroll');
+          overlay.style.cssText = [
+            'position: fixed',
+            'top: ' + py + 'px',
+            'left: ' + px + 'px',
+            'width: ' + pw + 'px',
+            'height: ' + ph + 'px',
+            'z-index: 2147483647',
+            'display: flex',
+            'align-items: center',
+            'justify-content: center',
+            'overflow: hidden',
+            'border-radius: 12px',
           ].join(' !important;') + ' !important';
 
           // ─── 광고 소재 이미지 (존재할 경우 화면 꽉 채움) ───
