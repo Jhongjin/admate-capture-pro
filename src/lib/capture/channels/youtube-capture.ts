@@ -491,52 +491,56 @@ export class YouTubeCapture extends BaseChannel {
           adLabel.textContent = '광고';
           overlay.appendChild(adLabel);
 
-          // ═══ 좌하단: CTA 카드 (실제 YouTube 동일) ═══
-          // [원형 아이콘] 광고제목    [흰색 CTA 버튼]
-          //              도메인
-          // 📌 Headless Chromium에서는 backdrop-filter가 미작동하므로
-          //    blur 없이 YouTube와 시각적으로 동일하게 보이도록 투명도 조정
+          // ═══ 좌하단: CTA 카드 ═══
+          // 📌 YouTube 실제 CSS 그대로 적용 (DevTools 추출):
+          //   .ytp-ad-avatar-lockup-card { padding: 12px; max-width: 400px; }
+          //   .ytp-delhi-modern .ytp-ad-avatar-lockup-card { background: rgba(0,0,0,.6); border-radius: 8px; }
+          //   --yt-frosted-glass-backdrop-filter-override: none; → blur 없음
+          //   .ytp-ad-player-overlay-layout__player-card-container { bottom: 95px; left: 22px; }
           const ctaCard = document.createElement('div');
           ctaCard.style.cssText = [
             'position: absolute',
-            'bottom: 48px',
-            'left: 12px',
+            'bottom: 95px',
+            'left: 22px',
             'display: flex',
             'align-items: center',
-            'gap: 8px',
-            'background: rgba(15,15,15,0.45)',
+            'background: rgba(0,0,0,0.6)',
             'border-radius: 8px',
-            'padding: 6px 10px',
-            'max-width: 420px',
+            'padding: 12px',
+            'max-width: 400px',
             'z-index: 10',
+            'overflow: hidden',
+            'cursor: pointer',
           ].join(' !important;') + ' !important';
 
-          // 원형 아이콘
+          // 원형 아이콘 (ytp-ad-avatar--size-m = 40px)
           const ctaIcon = document.createElement('img');
           ctaIcon.src = imgUrl;
-          ctaIcon.style.cssText = 'width:36px !important;height:36px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important';
+          ctaIcon.style.cssText = 'width:40px !important;height:40px !important;border-radius:50% !important;object-fit:cover !important;flex-shrink:0 !important;margin-right:12px !important';
           ctaCard.appendChild(ctaIcon);
 
           // 텍스트 영역 (광고제목 + 도메인)
           const ctaTextDiv = document.createElement('div');
-          ctaTextDiv.style.cssText = 'flex:1;min-width:0';
+          ctaTextDiv.style.cssText = 'flex:1;min-width:0;margin-right:12px';
           ctaTextDiv.innerHTML = [
-            '<div style="font-size:14px;font-weight:500;color:#fff;font-family:Roboto,Noto Sans KR,Arial,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px">' + titleText + '</div>',
-            '<div style="font-size:12px;color:rgba(255,255,255,0.7);font-family:Roboto,Noto Sans KR,Arial,sans-serif;margin-top:1px;line-height:16px">' + domainText + '</div>',
+            '<div style="font-size:14px;font-weight:500;color:#fff;font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px">' + titleText + '</div>',
+            '<div style="font-size:12px;color:rgba(255,255,255,0.7);font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;margin-top:2px;line-height:16px">' + domainText + '</div>',
           ].join('');
           ctaCard.appendChild(ctaTextDiv);
 
-          // ✅ CTA 버튼 (실제 YouTube: ytp-ad-button-vm--style-filled-white)
+          // ✅ CTA 버튼 (ytp-ad-button-vm--style-filled-white)
+          // YouTube CSS: --yt-spec-white-3: #f1f1f1
           const ctaBtn = document.createElement('div');
-          ctaBtn.style.cssText = "background:#f1f1f1;color:#0f0f0f;font-size:14px;font-weight:500;font-family:Roboto,Noto Sans KR,Arial,sans-serif;padding:6px 12px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0";
+          ctaBtn.style.cssText = "background:#f1f1f1;color:#0f0f0f;font-size:14px;font-weight:500;font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;padding:9px 16px;border-radius:18px;white-space:nowrap;cursor:pointer;flex-shrink:0";
           ctaBtn.textContent = ctaBtnText;
           ctaCard.appendChild(ctaBtn);
 
           overlay.appendChild(ctaCard);
 
-          // ─── 좌하단 하위: "스폰서 ⓘ 도메인" (실제 YouTube 동일 스타일) ───
+          // ─── 좌하단 하위: "스폰서 ⓘ 도메인" ───
+          // CTA 카드 (bottom:95px) 바로 아래에 배치
           const sponsorText = document.createElement('div');
-          sponsorText.style.cssText = "position:absolute;bottom:28px;left:12px;font-size:12px;color:rgba(255,255,255,0.7);font-family:Roboto,Noto Sans KR,Arial,sans-serif;z-index:10;display:flex;align-items:center;gap:5px;font-weight:400";
+          sponsorText.style.cssText = "position:absolute;bottom:72px;left:22px;font-size:12px;color:rgba(255,255,255,0.7);font-family:YouTube Noto,Roboto,Arial,Helvetica,sans-serif;z-index:10;display:flex;align-items:center;gap:5px;font-weight:400";
           sponsorText.innerHTML = '<span>스폰서</span><svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)" style="flex-shrink:0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span>' + domainText + '</span>';
           overlay.appendChild(sponsorText);
 
