@@ -198,7 +198,7 @@ async function executeBatchCaptures(captureIds: string[]): Promise<void> {
             adSizeMode: captureMetadata.adSizeMode ?? "auto",
             targetAdSizes: captureMetadata.targetAdSizes ?? [],
             youtubeAdType: captureMetadata.youtubeAdType ?? "preroll",
-            ...(captureMetadata.instreamOpts ?? {}),
+            instreamOpts: captureMetadata.instreamOpts,
           },
         });
 
